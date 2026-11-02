@@ -1,0 +1,68 @@
+name: Deploy WebApp to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Software/WebApp/**'
+      - '.github/workflows/webapp-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: read
+    defaults:
+      run:
+        working-directory: Software/WebApp
+    env:
+      CI: 'true'
+      EXPO_NO_TELEMETRY: '1'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: Software/WebApp/package-lock.json
+      - name: Read Pages configuration
+        id: pages
+        uses: actions/configure-pages@v5
+      - name: Install dependencies
+        run: npm ci
+      - name: Check types
+        run: npm run typecheck
+      - name: Test mock connection
+        run: npm test
+      - name: Export website
+        run: npm run build:pages
+        env:
+          EXPO_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+      - name: Upload website
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: Software/WebApp/dist
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy website
+        id: deployment
+        uses: actions/deploy-pages@v4
