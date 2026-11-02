@@ -18,6 +18,10 @@ bool isFinite(float value) {
     return std::isfinite(value);
 }
 
+bool isSensorInvalid(QualityFlags flags) {
+    return (flags & quality::SensorInvalid) != 0U;
+}
+
 bool isValidDepthWindow(const DepthWindow& input) {
     if (input.samples.empty() || input.end_us < input.start_us) {
         return false;
@@ -26,7 +30,7 @@ bool isValidDepthWindow(const DepthWindow& input) {
     TimestampUs previous_timestamp = 0;
     bool first = true;
     for (const auto& sample : input.samples) {
-        if (!isFinite(sample.depth_m)) {
+        if (!isFinite(sample.depth_m) && !isSensorInvalid(sample.quality_flags)) {
             return false;
         }
         if (!first && sample.timestamp_us <= previous_timestamp) {
@@ -46,12 +50,13 @@ bool isValidImuWindow(const ImuWindow& input) {
     TimestampUs previous_timestamp = 0;
     bool first = true;
     for (const auto& sample : input.samples) {
-        if (!isFinite(sample.acceleration_x) ||
+        if (!isSensorInvalid(sample.quality_flags) &&
+            (!isFinite(sample.acceleration_x) ||
             !isFinite(sample.acceleration_y) ||
             !isFinite(sample.acceleration_z) ||
             !isFinite(sample.angular_velocity_x) ||
             !isFinite(sample.angular_velocity_y) ||
-            !isFinite(sample.angular_velocity_z)) {
+            !isFinite(sample.angular_velocity_z))) {
             return false;
         }
         if (!first && sample.timestamp_us <= previous_timestamp) {
@@ -98,6 +103,22 @@ bool validRiskValue(const std::optional<float>& value) {
     return value.has_value() && isFinite(*value) && *value >= 0.0F && *value <= 1.0F;
 }
 
+StatusCode firstProcessingFailure(const FusionOutput& output) {
+    if (output.depth.status != StatusCode::Ok) {
+        return output.depth.status;
+    }
+    if (output.ascent.status != StatusCode::Ok) {
+        return output.ascent.status;
+    }
+    if (output.imu.status != StatusCode::Ok) {
+        return output.imu.status;
+    }
+    if (output.max30102.status != StatusCode::Ok) {
+        return output.max30102.status;
+    }
+    return StatusCode::Ok;
+}
+
 }  // namespace
 
 DepthFilterResult cleanDepth(const DepthWindow& input,
@@ -131,7 +152,29 @@ DepthFilterResult cleanDepth(const DepthWindow& input,
         std::vector<float> neighborhood;
         neighborhood.reserve(last - first + 1U);
         for (std::size_t neighbor = first; neighbor <= last; ++neighbor) {
-            neighborhood.push_back(input.samples[neighbor].depth_m);
+            const auto& sample = input.samples[neighbor];
+            if (!isSensorInvalid(sample.quality_flags) && isFinite(sample.depth_m)) {
+                neighborhood.push_back(sample.depth_m);
+            }
+        }
+
+        CleanedDepthReading cleaned;
+        cleaned.timestamp_us = input.samples[index].timestamp_us;
+        cleaned.quality_flags = input.samples[index].quality_flags;
+        const bool current_invalid =
+            isSensorInvalid(input.samples[index].quality_flags) ||
+            !isFinite(input.samples[index].depth_m);
+
+        if (current_invalid || neighborhood.empty()) {
+            ++result.invalid_count;
+            cleaned.quality_flags |= quality::SensorInvalid;
+            if (previous_ema.has_value()) {
+                cleaned.cleaned_depth_m = *previous_ema;
+                cleaned.has_value = true;
+                cleaned.quality_flags |= quality::CarriedForward;
+            }
+            result.samples.push_back(cleaned);
+            continue;
         }
 
         const float neighborhood_median = median(neighborhood);
@@ -148,15 +191,15 @@ DepthFilterResult cleanDepth(const DepthWindow& input,
             std::fabs(input.samples[index].depth_m - neighborhood_median) >
             allowed_deviation;
 
-        CleanedDepthReading cleaned;
-        cleaned.timestamp_us = input.samples[index].timestamp_us;
         cleaned.outlier_rejected = is_outlier;
 
         if (is_outlier) {
             ++result.rejected_count;
+            cleaned.quality_flags |= quality::OutlierRejected;
             if (previous_ema.has_value()) {
                 cleaned.cleaned_depth_m = *previous_ema;
                 cleaned.has_value = true;
+                cleaned.quality_flags |= quality::CarriedForward;
             }
         } else {
             const float current = input.samples[index].depth_m;
@@ -245,6 +288,9 @@ ImuFeatures describeImu(const ImuWindow& input) {
     double acceleration_z_sum = 0.0;
 
     for (const auto& sample : input.samples) {
+        if (isSensorInvalid(sample.quality_flags)) {
+            continue;
+        }
         const float acceleration_magnitude = std::sqrt(
             sample.acceleration_x * sample.acceleration_x +
             sample.acceleration_y * sample.acceleration_y +
@@ -259,6 +305,12 @@ ImuFeatures describeImu(const ImuWindow& input) {
         acceleration_x_sum += sample.acceleration_x;
         acceleration_y_sum += sample.acceleration_y;
         acceleration_z_sum += sample.acceleration_z;
+    }
+
+    if (acceleration_magnitudes.empty()) {
+        result.status = StatusCode::InsufficientData;
+        result.sample_count = input.samples.size();
+        return result;
     }
 
     double acceleration_sum = 0.0;
@@ -276,6 +328,7 @@ ImuFeatures describeImu(const ImuWindow& input) {
 
     result.status = StatusCode::Ok;
     result.sample_count = input.samples.size();
+    result.valid_sample_count = acceleration_magnitudes.size();
     result.mean_acceleration_magnitude = static_cast<float>(acceleration_mean);
     result.acceleration_magnitude_stddev = static_cast<float>(std::sqrt(
         variance_sum / static_cast<double>(acceleration_magnitudes.size())));
@@ -323,17 +376,34 @@ Max30102Features describeMax30102(const Max30102Window& input) {
     double red_sum = 0.0;
     double infrared_sum = 0.0;
     for (const auto& sample : input.samples) {
+        if (isSensorInvalid(sample.quality_flags)) {
+            continue;
+        }
         red_sum += static_cast<double>(sample.red);
         infrared_sum += static_cast<double>(sample.infrared);
     }
 
-    const double sample_count = static_cast<double>(input.samples.size());
+    result.valid_sample_count = input.samples.size();
+    for (const auto& sample : input.samples) {
+        if (isSensorInvalid(sample.quality_flags)) {
+            --result.valid_sample_count;
+        }
+    }
+    if (result.valid_sample_count == 0U) {
+        result.status = StatusCode::InsufficientData;
+        return result;
+    }
+
+    const double sample_count = static_cast<double>(result.valid_sample_count);
     const double red_mean = red_sum / sample_count;
     const double infrared_mean = infrared_sum / sample_count;
     double red_variance_sum = 0.0;
     double infrared_variance_sum = 0.0;
 
     for (const auto& sample : input.samples) {
+        if (isSensorInvalid(sample.quality_flags)) {
+            continue;
+        }
         const double red_delta = static_cast<double>(sample.red) - red_mean;
         const double infrared_delta =
             static_cast<double>(sample.infrared) - infrared_mean;
@@ -425,6 +495,15 @@ FusionOutput SensorFusion::process(const FusionWindow& input,
     output.ascent = estimateDepthSlope(output.depth.samples, minimum_slope_samples_);
     output.imu = describeImu(input.imu);
     output.max30102 = describeMax30102(input.max30102);
+
+    const StatusCode processing_status = firstProcessingFailure(output);
+    if (processing_status != StatusCode::Ok) {
+        output.status = processing_status;
+        output.risk.status = processing_status;
+        output.risk.value.reset();
+        return output;
+    }
+
     output.risk = calculateRiskScore(components);
 
     output.status = output.risk.status == StatusCode::Ok ? StatusCode::Ok
@@ -436,6 +515,11 @@ FusionOutput SensorFusion::process(const FusionWindow& input,
                                    const RiskMappers& mappers,
                                    std::optional<float> quality_q) const {
     FusionOutput output = process(input, RiskComponents{});
+    if (output.status != StatusCode::MissingRiskComponent &&
+        output.status != StatusCode::MissingQuality) {
+        return output;
+    }
+
     const MappedRiskComponents mapped = mapRiskComponents(
         output.imu, output.ascent, output.max30102, quality_q, mappers);
 

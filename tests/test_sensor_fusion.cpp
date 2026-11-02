@@ -126,6 +126,59 @@ void testImuOrientationContext() {
     assert(std::fabs(features.orientation.pitch_rad) < 1e-6F);
 }
 
+void testQualityFlagsArePreserved() {
+    DepthWindow input;
+    input.start_us = 0;
+    input.end_us = 2'000;
+    input.samples = {
+        {0, 10.0F},
+        {1'000, 0.0F, quality::SensorInvalid},
+        {2'000, 8.0F},
+    };
+
+    const DepthFilterResult cleaned = cleanDepth(
+        input, DepthFilterConfig{1, 3.0F, 1.0F});
+    assert(cleaned.status == StatusCode::Ok);
+    assert(cleaned.invalid_count == 1U);
+    assert(cleaned.samples[1].has_value);
+    assert((cleaned.samples[1].quality_flags & quality::SensorInvalid) != 0U);
+    assert((cleaned.samples[1].quality_flags & quality::CarriedForward) != 0U);
+
+    ImuWindow imu;
+    imu.start_us = 0;
+    imu.end_us = 2'000;
+    imu.samples = {
+        {0, 0.0F, 0.0F, 9.81F, 0.0F, 0.0F, 0.0F},
+        {1'000, 0.0F, 0.0F, 9.81F, 0.0F, 0.0F, 0.0F, quality::SensorInvalid},
+    };
+    const ImuFeatures imu_features = describeImu(imu);
+    assert(imu_features.status == StatusCode::Ok);
+    assert(imu_features.sample_count == 2U);
+    assert(imu_features.valid_sample_count == 1U);
+}
+
+void testInvalidSensorProcessingBlocksFinalScore() {
+    FusionWindow input;
+    input.depth.start_us = 0;
+    input.depth.end_us = 0;
+    input.imu.start_us = 0;
+    input.imu.end_us = 0;
+    input.max30102.start_us = 0;
+    input.max30102.end_us = 0;
+
+    RiskMappers mappers;
+    mappers.motion = [](const ImuFeatures&) { return std::optional<float>{0.0F}; };
+    mappers.ascent = [](const SlopeEstimate&) { return std::optional<float>{0.0F}; };
+    mappers.pulse = [](const Max30102Features&) { return std::optional<float>{0.0F}; };
+    mappers.spo2 = [](const Max30102Features&) { return std::optional<float>{0.0F}; };
+
+    const SensorFusion fusion(DepthFilterConfig{1, 3.0F, 1.0F}, 2U);
+    const FusionOutput output = fusion.process(input, mappers, 0.0F);
+    assert(output.status == StatusCode::EmptyWindow);
+    assert(output.risk.status == StatusCode::EmptyWindow);
+    assert(!output.risk.value.has_value());
+}
+
 }  // namespace
 
 int main() {
@@ -135,5 +188,7 @@ int main() {
     testMax30102RawFeatures();
     testReplaceableRiskMappers();
     testImuOrientationContext();
+    testQualityFlagsArePreserved();
+    testInvalidSensorProcessingBlocksFinalScore();
     return 0;
 }

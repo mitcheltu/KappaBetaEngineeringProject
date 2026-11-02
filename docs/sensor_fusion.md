@@ -52,6 +52,11 @@ Rejected samples retain their timestamps and are marked as rejected. If an EMA
 value already exists, a rejected sample carries forward the previous filtered
 value; it does not become a new measurement.
 
+Sensor-provided invalid samples are retained but excluded from filter
+neighborhoods. If a previous EMA exists, the output is marked as carried
+forward so downstream code can distinguish a held value from a new sensor
+measurement. Quality flags are preserved alongside timestamps and values.
+
 The filter radius, Hampel multiplier, and EMA alpha are required configuration
 values. No project-specific defaults are selected.
 
@@ -73,6 +78,9 @@ and angular velocity magnitudes. It also estimates roll and pitch from the
 mean acceleration vector over the window, treating that vector as a gravity
 reference. This is context only and may be unreliable during strong motion.
 
+Samples marked sensor-invalid are excluded from the feature statistics, and
+the feature result reports both total and valid sample counts.
+
 Yaw is explicitly unavailable: a 6DoF IMU has no absolute heading reference,
 so the module does not integrate gyro data into a long-term yaw estimate.
 
@@ -84,6 +92,9 @@ outside the current implementation.
 Raw red and infrared windows are accepted and validated. The current step
 calculates mean and standard-deviation features for both channels. These are
 descriptive preprocessing outputs, not pulse or SpO2 measurements.
+
+Samples marked sensor-invalid are excluded from those statistics while the
+total and valid sample counts remain available to later quality logic.
 
 Pulse and SpO2 extraction is intentionally left unimplemented until the
 project selects the algorithm, sampling assumptions, calibration assumptions,
@@ -103,8 +114,10 @@ The implementation exposes four caller-supplied mapping callbacks:
 
 Each callback must return a normalized value in `[0, 1]` once its project
 rules are implemented. An absent callback or absent mapped value prevents a
-final score. This keeps threshold and baseline decisions outside the fusion
-engine.
+final score. Invalid or insufficient sensor windows also prevent a final
+score, even if a callback returns a value. This keeps threshold and baseline
+decisions outside the fusion engine without allowing placeholder mappings to
+mask sensor failures.
 
 ## Risk fusion
 

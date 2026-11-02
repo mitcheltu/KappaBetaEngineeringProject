@@ -9,6 +9,16 @@
 namespace sensor_fusion {
 
 using TimestampUs = std::uint64_t;
+using QualityFlags = std::uint32_t;
+
+namespace quality {
+
+constexpr QualityFlags None = 0U;
+constexpr QualityFlags SensorInvalid = 1U << 0U;
+constexpr QualityFlags OutlierRejected = 1U << 1U;
+constexpr QualityFlags CarriedForward = 1U << 2U;
+
+}  // namespace quality
 
 enum class StatusCode {
     Ok,
@@ -29,6 +39,7 @@ struct DepthReading {
     // Depth must already be expressed in metres. Pressure-to-depth conversion
     // belongs in the sensor adapter, before this fusion layer.
     float depth_m{0.0F};
+    QualityFlags quality_flags{quality::None};
 };
 
 struct ImuReading {
@@ -39,12 +50,14 @@ struct ImuReading {
     float angular_velocity_x{0.0F};
     float angular_velocity_y{0.0F};
     float angular_velocity_z{0.0F};
+    QualityFlags quality_flags{quality::None};
 };
 
 struct Max30102Reading {
     TimestampUs timestamp_us{0};
     std::uint32_t red{0};
     std::uint32_t infrared{0};
+    QualityFlags quality_flags{quality::None};
 };
 
 template <typename Reading>
@@ -78,12 +91,14 @@ struct CleanedDepthReading {
     float cleaned_depth_m{0.0F};
     bool has_value{false};
     bool outlier_rejected{false};
+    QualityFlags quality_flags{quality::None};
 };
 
 struct DepthFilterResult {
     StatusCode status{StatusCode::EmptyWindow};
     std::vector<CleanedDepthReading> samples;
     std::size_t rejected_count{0};
+    std::size_t invalid_count{0};
 };
 
 DepthFilterResult cleanDepth(const DepthWindow& input,
@@ -112,6 +127,7 @@ struct OrientationContext {
 struct ImuFeatures {
     StatusCode status{StatusCode::EmptyWindow};
     std::size_t sample_count{0};
+    std::size_t valid_sample_count{0};
     std::optional<float> mean_acceleration_magnitude;
     std::optional<float> acceleration_magnitude_stddev;
     std::optional<float> mean_angular_speed_rad_per_s;
@@ -126,6 +142,7 @@ ImuFeatures describeImu(const ImuWindow& input);
 struct Max30102Features {
     StatusCode status{StatusCode::EmptyWindow};
     std::size_t sample_count{0};
+    std::size_t valid_sample_count{0};
     std::optional<float> mean_red;
     std::optional<float> mean_infrared;
     std::optional<float> red_stddev;
