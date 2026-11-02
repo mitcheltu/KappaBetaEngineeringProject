@@ -81,8 +81,38 @@ void testMax30102RawFeatures() {
     assert(std::fabs(*features.mean_infrared - 400.0F) < 1e-6F);
     assert(features.red_stddev.has_value());
     assert(features.infrared_stddev.has_value());
+    assert(features.red_perfusion_index.has_value());
+    assert(features.infrared_perfusion_index.has_value());
     assert(!features.pulse_bpm.has_value());
     assert(!features.spo2_percent.has_value());
+}
+
+void testMax30102ExtractorsAreInjected() {
+    Max30102Window input;
+    input.start_us = 0;
+    input.end_us = 2'000;
+    input.samples = {
+        {0, 100, 200},
+        {1'000, 200, 400},
+        {2'000, 300, 600},
+    };
+
+    Max30102Extractors extractors;
+    extractors.pulse = [](const Max30102Window&, const Max30102Features&) {
+        return std::optional<float>{72.0F};
+    };
+    extractors.spo2 = [](const Max30102Window&, const Max30102Features&) {
+        return std::optional<float>{98.0F};
+    };
+
+    const Max30102Features features = extractMax30102Metrics(input, extractors);
+    assert(features.status == StatusCode::Ok);
+    assert(features.pulse_bpm == std::optional<float>{72.0F});
+    assert(features.spo2_percent == std::optional<float>{98.0F});
+
+    const Max30102Features missing = extractMax30102Metrics(
+        input, Max30102Extractors{});
+    assert(missing.status == StatusCode::MissingSignalProcessor);
 }
 
 void testReplaceableRiskMappers() {
@@ -179,6 +209,57 @@ void testInvalidSensorProcessingBlocksFinalScore() {
     assert(!output.risk.value.has_value());
 }
 
+void testEndToEndInjectedMax30102Path() {
+    FusionWindow input;
+    input.depth.start_us = 0;
+    input.depth.end_us = 2'000'000;
+    input.depth.samples = {
+        {0, 10.0F},
+        {1'000'000, 9.0F},
+        {2'000'000, 8.0F},
+    };
+    input.imu.start_us = 0;
+    input.imu.end_us = 2'000;
+    input.imu.samples = {
+        {0, 0.0F, 0.0F, 9.81F, 0.0F, 0.0F, 0.0F},
+        {1'000, 0.0F, 0.0F, 9.81F, 0.0F, 0.0F, 0.0F},
+        {2'000, 0.0F, 0.0F, 9.81F, 0.0F, 0.0F, 0.0F},
+    };
+    input.max30102.start_us = 0;
+    input.max30102.end_us = 2'000;
+    input.max30102.samples = {
+        {0, 100, 200},
+        {1'000, 200, 400},
+        {2'000, 300, 600},
+    };
+
+    Max30102Extractors extractors;
+    extractors.pulse = [](const Max30102Window&, const Max30102Features&) {
+        return std::optional<float>{72.0F};
+    };
+    extractors.spo2 = [](const Max30102Window&, const Max30102Features&) {
+        return std::optional<float>{98.0F};
+    };
+
+    RiskMappers mappers;
+    mappers.motion = [](const ImuFeatures&) { return std::optional<float>{0.2F}; };
+    mappers.ascent = [](const SlopeEstimate&) { return std::optional<float>{0.4F}; };
+    mappers.pulse = [](const Max30102Features& features) {
+        assert(features.pulse_bpm == std::optional<float>{72.0F});
+        return std::optional<float>{0.6F};
+    };
+    mappers.spo2 = [](const Max30102Features& features) {
+        assert(features.spo2_percent == std::optional<float>{98.0F});
+        return std::optional<float>{0.8F};
+    };
+
+    const SensorFusion fusion(DepthFilterConfig{1, 3.0F, 1.0F}, 2U);
+    const FusionOutput output = fusion.process(input, extractors, mappers, 0.5F);
+    assert(output.status == StatusCode::Ok);
+    assert(output.risk.status == StatusCode::Ok);
+    assert(output.risk.value.has_value());
+}
+
 }  // namespace
 
 int main() {
@@ -186,9 +267,11 @@ int main() {
     testRiskFormula();
     testQualityBehavior();
     testMax30102RawFeatures();
+    testMax30102ExtractorsAreInjected();
     testReplaceableRiskMappers();
     testImuOrientationContext();
     testQualityFlagsArePreserved();
     testInvalidSensorProcessingBlocksFinalScore();
+    testEndToEndInjectedMax30102Path();
     return 0;
 }

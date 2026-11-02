@@ -91,17 +91,26 @@ outside the current implementation.
 
 Raw red and infrared windows are accepted and validated. The current step
 calculates mean and standard-deviation features for both channels. These are
-descriptive preprocessing outputs, not pulse or SpO2 measurements.
+descriptive preprocessing outputs, not pulse or SpO2 measurements. It also
+reports red and infrared perfusion-index features as AC variation divided by
+the channel DC mean.
 
 Samples marked sensor-invalid are excluded from those statistics while the
 total and valid sample counts remain available to later quality logic.
 
 Pulse and SpO2 extraction is intentionally left unimplemented until the
 project selects the algorithm, sampling assumptions, calibration assumptions,
-and validity rules.
+and validity rules. The code accepts caller-supplied pulse and SpO2 extractors;
+missing extractors or missing metric results prevent a valid MAX30102 feature
+result. No thresholds or calibration coefficients are embedded.
 
 The mappings from pulse and SpO2 measurements to `H` and `O` are also left
 open.
+
+The end-to-end `SensorFusion` path accepts the MAX30102 extractors and runs
+them before the risk-mapping callbacks. This keeps raw-window processing,
+physiological metric extraction, normalized risk mapping, and final fusion as
+separate testable stages.
 
 ## Risk-mapping interfaces
 

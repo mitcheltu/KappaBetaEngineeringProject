@@ -29,6 +29,7 @@ enum class StatusCode {
     DegenerateRegression,
     MissingRiskComponent,
     MissingRiskMapper,
+    MissingSignalProcessor,
     MissingQuality,
     InvalidRiskComponent,
     NotImplemented,
@@ -147,6 +148,8 @@ struct Max30102Features {
     std::optional<float> mean_infrared;
     std::optional<float> red_stddev;
     std::optional<float> infrared_stddev;
+    std::optional<float> red_perfusion_index;
+    std::optional<float> infrared_perfusion_index;
     // Pulse and SpO2 extraction will be added after its algorithm and quality
     // requirements are specified.
     std::optional<float> pulse_bpm;
@@ -154,6 +157,21 @@ struct Max30102Features {
 };
 
 Max30102Features describeMax30102(const Max30102Window& input);
+
+using PulseExtractor = std::function<std::optional<float>(
+    const Max30102Window&, const Max30102Features&)>;
+using SpO2Extractor = std::function<std::optional<float>(
+    const Max30102Window&, const Max30102Features&)>;
+
+struct Max30102Extractors {
+    PulseExtractor pulse;
+    SpO2Extractor spo2;
+};
+
+// Extractors are intentionally injected. This module does not select pulse or
+// SpO2 thresholds, calibration coefficients, or a clinical algorithm.
+Max30102Features extractMax30102Metrics(const Max30102Window& input,
+                                        const Max30102Extractors& extractors);
 
 struct RiskComponents {
     std::optional<float> motion_m;
@@ -221,6 +239,11 @@ public:
                          const RiskComponents& components) const;
 
     FusionOutput process(const FusionWindow& input,
+                         const RiskMappers& mappers,
+                         std::optional<float> quality_q) const;
+
+    FusionOutput process(const FusionWindow& input,
+                         const Max30102Extractors& max30102_extractors,
                          const RiskMappers& mappers,
                          std::optional<float> quality_q) const;
 

@@ -119,6 +119,33 @@ StatusCode firstProcessingFailure(const FusionOutput& output) {
     return StatusCode::Ok;
 }
 
+FusionOutput buildFeatureOutput(const FusionWindow& input,
+                                const DepthFilterConfig& depth_config,
+                                std::size_t minimum_slope_samples,
+                                const Max30102Features& max30102) {
+    FusionOutput output;
+    output.depth = cleanDepth(input.depth, depth_config);
+    output.ascent = estimateDepthSlope(output.depth.samples, minimum_slope_samples);
+    output.imu = describeImu(input.imu);
+    output.max30102 = max30102;
+    return output;
+}
+
+FusionOutput finalizeWithRisk(FusionOutput output,
+                              const RiskComponents& components) {
+    const StatusCode processing_status = firstProcessingFailure(output);
+    if (processing_status != StatusCode::Ok) {
+        output.status = processing_status;
+        output.risk.status = processing_status;
+        output.risk.value.reset();
+        return output;
+    }
+
+    output.risk = calculateRiskScore(components);
+    output.status = output.risk.status;
+    return output;
+}
+
 }  // namespace
 
 DepthFilterResult cleanDepth(const DepthWindow& input,
@@ -416,6 +443,38 @@ Max30102Features describeMax30102(const Max30102Window& input) {
     result.red_stddev = static_cast<float>(std::sqrt(red_variance_sum / sample_count));
     result.infrared_stddev = static_cast<float>(
         std::sqrt(infrared_variance_sum / sample_count));
+    if (red_mean > 0.0) {
+        result.red_perfusion_index = static_cast<float>(
+            *result.red_stddev / static_cast<float>(red_mean));
+    }
+    if (infrared_mean > 0.0) {
+        result.infrared_perfusion_index = static_cast<float>(
+            *result.infrared_stddev / static_cast<float>(infrared_mean));
+    }
+    result.status = StatusCode::Ok;
+    return result;
+}
+
+Max30102Features extractMax30102Metrics(
+    const Max30102Window& input,
+    const Max30102Extractors& extractors) {
+    Max30102Features result = describeMax30102(input);
+    if (result.status != StatusCode::Ok) {
+        return result;
+    }
+
+    if (!extractors.pulse || !extractors.spo2) {
+        result.status = StatusCode::MissingSignalProcessor;
+        return result;
+    }
+
+    result.pulse_bpm = extractors.pulse(input, result);
+    result.spo2_percent = extractors.spo2(input, result);
+    if (!result.pulse_bpm.has_value() || !result.spo2_percent.has_value()) {
+        result.status = StatusCode::InsufficientData;
+        return result;
+    }
+
     result.status = StatusCode::Ok;
     return result;
 }
@@ -490,48 +549,62 @@ SensorFusion::SensorFusion(DepthFilterConfig depth_config,
 
 FusionOutput SensorFusion::process(const FusionWindow& input,
                                    const RiskComponents& components) const {
-    FusionOutput output;
-    output.depth = cleanDepth(input.depth, depth_config_);
-    output.ascent = estimateDepthSlope(output.depth.samples, minimum_slope_samples_);
-    output.imu = describeImu(input.imu);
-    output.max30102 = describeMax30102(input.max30102);
+    return finalizeWithRisk(
+        buildFeatureOutput(input, depth_config_, minimum_slope_samples_,
+                           describeMax30102(input.max30102)),
+        components);
+}
 
-    const StatusCode processing_status = firstProcessingFailure(output);
-    if (processing_status != StatusCode::Ok) {
+FusionOutput SensorFusion::process(const FusionWindow& input,
+                                   const RiskMappers& mappers,
+                                   std::optional<float> quality_q) const {
+    FusionOutput output = buildFeatureOutput(
+        input, depth_config_, minimum_slope_samples_, describeMax30102(input.max30102));
+    if (const StatusCode processing_status = firstProcessingFailure(output);
+        processing_status != StatusCode::Ok) {
         output.status = processing_status;
         output.risk.status = processing_status;
         output.risk.value.reset();
         return output;
     }
 
-    output.risk = calculateRiskScore(components);
+    const MappedRiskComponents mapped = mapRiskComponents(
+        output.imu, output.ascent, output.max30102, quality_q, mappers);
 
-    output.status = output.risk.status == StatusCode::Ok ? StatusCode::Ok
-                                                          : output.risk.status;
-    return output;
+    if (mapped.status != StatusCode::Ok) {
+        output.status = mapped.status;
+        output.risk.status = mapped.status;
+        output.risk.value.reset();
+        return output;
+    }
+    return finalizeWithRisk(std::move(output), mapped.components);
 }
 
-FusionOutput SensorFusion::process(const FusionWindow& input,
-                                   const RiskMappers& mappers,
-                                   std::optional<float> quality_q) const {
-    FusionOutput output = process(input, RiskComponents{});
-    if (output.status != StatusCode::MissingRiskComponent &&
-        output.status != StatusCode::MissingQuality) {
+FusionOutput SensorFusion::process(
+    const FusionWindow& input,
+    const Max30102Extractors& max30102_extractors,
+    const RiskMappers& mappers,
+    std::optional<float> quality_q) const {
+    FusionOutput output = buildFeatureOutput(
+        input, depth_config_, minimum_slope_samples_,
+        extractMax30102Metrics(input.max30102, max30102_extractors));
+    if (const StatusCode processing_status = firstProcessingFailure(output);
+        processing_status != StatusCode::Ok) {
+        output.status = processing_status;
+        output.risk.status = processing_status;
+        output.risk.value.reset();
         return output;
     }
 
     const MappedRiskComponents mapped = mapRiskComponents(
         output.imu, output.ascent, output.max30102, quality_q, mappers);
-
-    output.risk = calculateRiskScore(mapped.components);
     if (mapped.status != StatusCode::Ok) {
         output.status = mapped.status;
-    } else if (output.risk.status != StatusCode::Ok) {
-        output.status = output.risk.status;
-    } else {
-        output.status = StatusCode::Ok;
+        output.risk.status = mapped.status;
+        output.risk.value.reset();
+        return output;
     }
-    return output;
+    return finalizeWithRisk(std::move(output), mapped.components);
 }
 
 }  // namespace sensor_fusion
