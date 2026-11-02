@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <vector>
 
@@ -17,6 +18,7 @@ enum class StatusCode {
     InsufficientData,
     DegenerateRegression,
     MissingRiskComponent,
+    MissingRiskMapper,
     MissingQuality,
     InvalidRiskComponent,
     NotImplemented,
@@ -101,6 +103,7 @@ SlopeEstimate estimateDepthSlope(
 
 struct OrientationContext {
     bool valid{false};
+    bool yaw_valid{false};
     float roll_rad{0.0F};
     float pitch_rad{0.0F};
     float yaw_rad{0.0F};
@@ -115,8 +118,9 @@ struct ImuFeatures {
     OrientationContext orientation;
 };
 
-// Provides descriptive IMU features only. It deliberately does not integrate
-// acceleration into velocity or select an orientation-estimation algorithm.
+// Provides descriptive IMU features and a gravity-vector roll/pitch estimate.
+// It deliberately does not integrate acceleration into velocity or estimate
+// yaw without a heading reference.
 ImuFeatures describeImu(const ImuWindow& input);
 
 struct Max30102Features {
@@ -151,6 +155,31 @@ struct RiskScore {
 
 RiskScore calculateRiskScore(const RiskComponents& components);
 
+using MotionRiskMapper = std::function<std::optional<float>(const ImuFeatures&)>;
+using AscentRiskMapper = std::function<std::optional<float>(const SlopeEstimate&)>;
+using PulseRiskMapper = std::function<std::optional<float>(const Max30102Features&)>;
+using SpO2RiskMapper = std::function<std::optional<float>(const Max30102Features&)>;
+
+struct RiskMappers {
+    MotionRiskMapper motion;
+    AscentRiskMapper ascent;
+    PulseRiskMapper pulse;
+    SpO2RiskMapper spo2;
+};
+
+struct MappedRiskComponents {
+    StatusCode status{StatusCode::MissingRiskMapper};
+    RiskComponents components;
+};
+
+// These callbacks are the only place where raw/derived features become
+// normalized risk values. No project-specific thresholds are embedded here.
+MappedRiskComponents mapRiskComponents(const ImuFeatures& imu,
+                                       const SlopeEstimate& ascent,
+                                       const Max30102Features& max30102,
+                                       std::optional<float> quality_q,
+                                       const RiskMappers& mappers);
+
 struct FusionWindow {
     DepthWindow depth;
     ImuWindow imu;
@@ -173,6 +202,10 @@ public:
 
     FusionOutput process(const FusionWindow& input,
                          const RiskComponents& components) const;
+
+    FusionOutput process(const FusionWindow& input,
+                         const RiskMappers& mappers,
+                         std::optional<float> quality_q) const;
 
 private:
     DepthFilterConfig depth_config_;

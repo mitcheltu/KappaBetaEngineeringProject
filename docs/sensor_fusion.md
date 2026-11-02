@@ -69,8 +69,12 @@ any persistence or action thresholds remain future configuration.
 ## IMU processing
 
 The current implementation calculates descriptive features from acceleration
-and angular velocity magnitudes. Orientation is represented as an extension
-point; the orientation algorithm and its parameters are not selected here.
+and angular velocity magnitudes. It also estimates roll and pitch from the
+mean acceleration vector over the window, treating that vector as a gravity
+reference. This is context only and may be unreliable during strong motion.
+
+Yaw is explicitly unavailable: a 6DoF IMU has no absolute heading reference,
+so the module does not integrate gyro data into a long-term yaw estimate.
 
 The mapping from IMU features to normalized motion-risk score `M` remains
 outside the current implementation.
@@ -87,6 +91,20 @@ and validity rules.
 
 The mappings from pulse and SpO2 measurements to `H` and `O` are also left
 open.
+
+## Risk-mapping interfaces
+
+The implementation exposes four caller-supplied mapping callbacks:
+
+- IMU features to `M`
+- Ascent slope to `A`
+- Pulse features to `H`
+- SpO2 features to `O`
+
+Each callback must return a normalized value in `[0, 1]` once its project
+rules are implemented. An absent callback or absent mapped value prevents a
+final score. This keeps threshold and baseline decisions outside the fusion
+engine.
 
 ## Risk fusion
 

@@ -240,6 +240,9 @@ ImuFeatures describeImu(const ImuWindow& input) {
     std::vector<float> acceleration_magnitudes;
     acceleration_magnitudes.reserve(input.samples.size());
     double angular_speed_sum = 0.0;
+    double acceleration_x_sum = 0.0;
+    double acceleration_y_sum = 0.0;
+    double acceleration_z_sum = 0.0;
 
     for (const auto& sample : input.samples) {
         const float acceleration_magnitude = std::sqrt(
@@ -253,6 +256,9 @@ ImuFeatures describeImu(const ImuWindow& input) {
 
         acceleration_magnitudes.push_back(acceleration_magnitude);
         angular_speed_sum += angular_speed;
+        acceleration_x_sum += sample.acceleration_x;
+        acceleration_y_sum += sample.acceleration_y;
+        acceleration_z_sum += sample.acceleration_z;
     }
 
     double acceleration_sum = 0.0;
@@ -275,7 +281,33 @@ ImuFeatures describeImu(const ImuWindow& input) {
         variance_sum / static_cast<double>(acceleration_magnitudes.size())));
     result.mean_angular_speed_rad_per_s = static_cast<float>(
         angular_speed_sum / static_cast<double>(input.samples.size()));
-    // Orientation estimation is intentionally left as an extension point.
+
+    const double sample_count = static_cast<double>(input.samples.size());
+    const float mean_acceleration_x =
+        static_cast<float>(acceleration_x_sum / sample_count);
+    const float mean_acceleration_y =
+        static_cast<float>(acceleration_y_sum / sample_count);
+    const float mean_acceleration_z =
+        static_cast<float>(acceleration_z_sum / sample_count);
+    const float horizontal_acceleration = std::sqrt(
+        mean_acceleration_y * mean_acceleration_y +
+        mean_acceleration_z * mean_acceleration_z);
+    const float mean_acceleration_magnitude = std::sqrt(
+        mean_acceleration_x * mean_acceleration_x +
+        mean_acceleration_y * mean_acceleration_y +
+        mean_acceleration_z * mean_acceleration_z);
+
+    if (mean_acceleration_magnitude > std::numeric_limits<float>::epsilon()) {
+        result.orientation.valid = true;
+        result.orientation.roll_rad =
+            std::atan2(mean_acceleration_y, mean_acceleration_z);
+        result.orientation.pitch_rad =
+            std::atan2(-mean_acceleration_x, horizontal_acceleration);
+        // BMI270 is a 6DoF IMU. Yaw needs a heading reference and is not
+        // observable from acceleration and gyro data over an isolated window.
+        result.orientation.yaw_valid = false;
+    }
+
     return result;
 }
 
@@ -351,6 +383,36 @@ RiskScore calculateRiskScore(const RiskComponents& components) {
     return result;
 }
 
+MappedRiskComponents mapRiskComponents(const ImuFeatures& imu,
+                                       const SlopeEstimate& ascent,
+                                       const Max30102Features& max30102,
+                                       std::optional<float> quality_q,
+                                       const RiskMappers& mappers) {
+    MappedRiskComponents result;
+    result.components.quality_q = quality_q;
+
+    if (!mappers.motion || !mappers.ascent || !mappers.pulse || !mappers.spo2) {
+        result.status = StatusCode::MissingRiskMapper;
+        return result;
+    }
+
+    result.components.motion_m = mappers.motion(imu);
+    result.components.ascent_a = mappers.ascent(ascent);
+    result.components.pulse_h = mappers.pulse(max30102);
+    result.components.spo2_o = mappers.spo2(max30102);
+
+    if (!result.components.motion_m.has_value() ||
+        !result.components.ascent_a.has_value() ||
+        !result.components.pulse_h.has_value() ||
+        !result.components.spo2_o.has_value()) {
+        result.status = StatusCode::MissingRiskComponent;
+        return result;
+    }
+
+    result.status = StatusCode::Ok;
+    return result;
+}
+
 SensorFusion::SensorFusion(DepthFilterConfig depth_config,
                            std::size_t minimum_slope_samples)
     : depth_config_(depth_config),
@@ -367,6 +429,24 @@ FusionOutput SensorFusion::process(const FusionWindow& input,
 
     output.status = output.risk.status == StatusCode::Ok ? StatusCode::Ok
                                                           : output.risk.status;
+    return output;
+}
+
+FusionOutput SensorFusion::process(const FusionWindow& input,
+                                   const RiskMappers& mappers,
+                                   std::optional<float> quality_q) const {
+    FusionOutput output = process(input, RiskComponents{});
+    const MappedRiskComponents mapped = mapRiskComponents(
+        output.imu, output.ascent, output.max30102, quality_q, mappers);
+
+    output.risk = calculateRiskScore(mapped.components);
+    if (mapped.status != StatusCode::Ok) {
+        output.status = mapped.status;
+    } else if (output.risk.status != StatusCode::Ok) {
+        output.status = output.risk.status;
+    } else {
+        output.status = StatusCode::Ok;
+    }
     return output;
 }
 

@@ -85,6 +85,47 @@ void testMax30102RawFeatures() {
     assert(!features.spo2_percent.has_value());
 }
 
+void testReplaceableRiskMappers() {
+    ImuFeatures imu;
+    SlopeEstimate ascent;
+    Max30102Features max30102;
+    RiskMappers mappers;
+    mappers.motion = [](const ImuFeatures&) { return std::optional<float>{0.2F}; };
+    mappers.ascent = [](const SlopeEstimate&) { return std::optional<float>{0.4F}; };
+    mappers.pulse = [](const Max30102Features&) { return std::optional<float>{0.6F}; };
+    mappers.spo2 = [](const Max30102Features&) { return std::optional<float>{0.8F}; };
+
+    const MappedRiskComponents mapped = mapRiskComponents(
+        imu, ascent, max30102, 0.5F, mappers);
+    assert(mapped.status == StatusCode::Ok);
+    assert(mapped.components.motion_m == std::optional<float>{0.2F});
+    assert(mapped.components.ascent_a == std::optional<float>{0.4F});
+    assert(mapped.components.pulse_h == std::optional<float>{0.6F});
+    assert(mapped.components.spo2_o == std::optional<float>{0.8F});
+    assert(mapped.components.quality_q == std::optional<float>{0.5F});
+
+    const RiskScore score = calculateRiskScore(mapped.components);
+    assert(score.status == StatusCode::Ok);
+}
+
+void testImuOrientationContext() {
+    ImuWindow input;
+    input.start_us = 0;
+    input.end_us = 2'000;
+    input.samples = {
+        {0, 0.0F, 0.0F, 9.81F, 0.0F, 0.0F, 0.0F},
+        {1'000, 0.0F, 0.0F, 9.81F, 0.0F, 0.0F, 0.0F},
+        {2'000, 0.0F, 0.0F, 9.81F, 0.0F, 0.0F, 0.0F},
+    };
+
+    const ImuFeatures features = describeImu(input);
+    assert(features.status == StatusCode::Ok);
+    assert(features.orientation.valid);
+    assert(!features.orientation.yaw_valid);
+    assert(std::fabs(features.orientation.roll_rad) < 1e-6F);
+    assert(std::fabs(features.orientation.pitch_rad) < 1e-6F);
+}
+
 }  // namespace
 
 int main() {
@@ -92,5 +133,7 @@ int main() {
     testRiskFormula();
     testQualityBehavior();
     testMax30102RawFeatures();
+    testReplaceableRiskMappers();
+    testImuOrientationContext();
     return 0;
 }
