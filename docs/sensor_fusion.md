@@ -20,11 +20,11 @@ raw timestamped windows
         |
         +--> IMU validation --> acceleration/angular-motion features
         |                                      |
-        |                                      +--> future orientation estimator
+        |                                      +--> gravity-vector roll/pitch context
         |
-        +--> MAX30102 validation --> future pulse/SpO2 extraction
+        +--> MAX30102 validation --> raw signal/perfusion features
                                                |
-                                               +--> future H/O mappings
+                                               +--> injected pulse/SpO2 extractors
 
 M, A, H, O, q --> quality-aware risk fusion --> R
 ```
@@ -37,8 +37,8 @@ M, A, H, O, q --> quality-aware risk fusion --> R
   handling belong in the sensor adapter before depth filtering.
 - IMU acceleration is descriptive input only. It must not be integrated into
   velocity in this module.
-- MAX30102 input contains raw red and infrared readings. Pulse and SpO2
-  extraction is not implemented yet.
+- MAX30102 input contains raw red and infrared readings. The current module
+  provides signal statistics and accepts injected pulse/SpO2 extractors.
 
 ## Depth processing
 
@@ -146,3 +146,16 @@ All five inputs must be within `[0, 1]`.
 
 No distress threshold, persistence period, actuator action, or inflation
 decision is implemented in this module.
+
+## Host-side verification
+
+The fusion library and unit tests can be built without an ESP32 toolchain:
+
+```text
+cmake -S . -B /tmp/kappa-sensor-fusion-build
+cmake --build /tmp/kappa-sensor-fusion-build
+ctest --test-dir /tmp/kappa-sensor-fusion-build --output-on-failure
+```
+
+This verifies the framework-neutral processing layer. It does not replace
+hardware-in-the-loop testing with the BMI270, MS5837-30BA, or MAX30102.
