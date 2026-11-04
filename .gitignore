@@ -1,0 +1,48 @@
+# Dependencies and generated build output
+node_modules/
+.expo/
+dist/
+web-build/
+coverage/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Logs and temporary files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.cache/
+
+# Local research, temporary files, and generated web-app artifacts
+/Research/
+/tmp/
+/Software/WebApp/audit/
+/Software/WebApp/design/
+
+# Ignore Markdown files except README.md files.
+*.md
+!README.md
+
+# Rev F local toolchain downloads, binaries, and schematic renderings
+/tmp/revf-build/
+/tmp/revf-review/
+/tmp/revf-tests/
+/tmp/telemetry-audit/
+/tmp/telemetry-audit.mjs
+/tmp/webapp-bench-export/
+
+# Python virtual environments and bytecode
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
