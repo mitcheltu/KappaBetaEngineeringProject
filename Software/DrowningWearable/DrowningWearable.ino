@@ -1,4 +1,4 @@
-// Rev F ESP32-S3 bench firmware. Pins: FirmwareConfig.h. Wiring: ../Electrical/README.md.
+// Rev F ESP32-S3 bench firmware. Pins: FirmwareConfig.h. Wiring: ../../Electrical/README.md.
 // SOS: vibrate 10s, then pump until Cancel. Serial commands: z, off, sos.
 #include "FirmwareShared.h"
 

@@ -18,7 +18,7 @@ The firmware targets **ESP32-S3-DevKitC-1-N8R8**. Numbers below are GPIO numbers
 | 16 | J1-9 | Former SOL_EN -> R3 (100 ohms) -> Q2 gate | Pump output; HIGH on, LOW off; steady on/off, no PWM |
 | 1 | J3-4 | VBAT_SENSE, midpoint of R5/R6 (100k/100k) | ADC1 input, 12-bit, 11 dB attenuation; battery estimate = 2 x calibrated ADC voltage |
 
-The authoritative constants are in [FirmwareConfig.h](../Software/FirmwareConfig.h); output initialization is in [DrowningWearable.ino](../Software/DrowningWearable.ino) and actuator control is in [Actuators.ino](../Software/Actuators.ino).
+The authoritative constants are in [FirmwareConfig.h](../Software/DrowningWearable/FirmwareConfig.h); output initialization is in [DrowningWearable.ino](../Software/DrowningWearable/DrowningWearable.ino) and actuator control is in [Actuators.ino](../Software/DrowningWearable/Actuators.ino).
 
 ### Arduino setup: official BlueRobotics library
 
@@ -33,11 +33,11 @@ Install **esp32 by Espressif Systems 3.3.7** through Boards Manager. Install the
 
 Choose the exact **BlueRobotics MS5837 Library** entry, using `#include <MS5837.h>`; no custom KappaBeta library or custom ZIP is needed. Other libraries named MS5837 can expose a different API. [Official library metadata](https://raw.githubusercontent.com/bluerobotics/BlueRobotics_MS5837_Library/1.1.1/library.properties)
 
-For Arduino IDE, create a sketch folder named `DrowningWearable` containing **all root `.ino` and `.h` files** from `Software/` (currently nine tabs and eight headers). Open `DrowningWearable.ino` inside that folder; the other `.ino` files appear as tabs. Select **ESP32S3 Dev Module**, **8 MB flash**, **Default 8MB partition scheme**, **OPI PSRAM**, and **USB CDC On Boot: Enabled** for the ESP32-S3-DevKitC-1-N8R8.
+For Arduino IDE, open [Software/DrowningWearable/DrowningWearable.ino](../Software/DrowningWearable/DrowningWearable.ino) directly. The `DrowningWearable` folder already contains all nine `.ino` tabs and eight headers; the IDE loads the other tabs automatically. Keep the whole folder together when copying it elsewhere. Select **ESP32S3 Dev Module**, **8 MB flash**, **Default 8MB partition scheme**, **OPI PSRAM**, and **USB CDC On Boot: Enabled** for the ESP32-S3-DevKitC-1-N8R8. Connect the board by USB, select its port, then click **Upload**.
 
 Keep exactly one `setup()` and one `loop()`, both in the primary tab. Arduino combines the primary tab first, followed by the other tabs alphabetically. Every tab includes `FirmwareShared.h` for library includes, shared `extern` declarations and function prototypes; each global has one definition in its owning tab. This also supports editors that put another primary tab first. Do not `#include` the `.ino` files. [Arduino sketch preprocessing](https://docs.arduino.cc/arduino-cli/sketch-build-process/)
 
-For **Wokwi**, use an **ESP32-S3-DevKitC-1** project. Replace the entire `sketch.ino` with the contents of `DrowningWearable.ino`, then add the remaining `.ino` tabs and every root `.h` file. Omit the `DrowningWearable.ino` tab in this layout so there is only one copy of `setup()`/`loop()` and the global definitions. Use [libraries.txt](../Software/libraries.txt) to select the tested library versions. Preserve your project's `diagram.json`; it is separate from the firmware sources. [Wokwi libraries](https://docs.wokwi.com/guides/libraries)
+For **Wokwi**, use an **ESP32-S3-DevKitC-1** project. Replace the entire `sketch.ino` with the contents of `Software/DrowningWearable/DrowningWearable.ino`, then add the remaining `.ino` tabs and every `.h` file from `Software/DrowningWearable/`. Omit the `DrowningWearable.ino` tab in this layout so there is only one copy of `setup()`/`loop()` and the global definitions. Use [libraries.txt](../Software/DrowningWearable/libraries.txt) to select the tested library versions. Preserve your project's `diagram.json`; it is separate from the firmware sources. [Wokwi libraries](https://docs.wokwi.com/guides/libraries)
 
 Wokwi currently does not simulate ESP32 Bluetooth, so compiling there does not verify a live BLE connection to the webapp. That requires the physical ESP32. [Wokwi simulation features](https://docs.wokwi.com/guides/esp32#simulation-features)
 
@@ -53,7 +53,7 @@ Wokwi currently does not simulate ESP32 Bluetooth, so compiling there does not v
 | `Ppg.ino` | MAX30102 configuration, FIFO and HR/SpO2 estimates |
 | `SerialCommands.ino` | Serial command parsing |
 
-The [build helper](../Software/build-firmware.ps1) stages that folder automatically. From the repository root, with the dependencies already downloaded to the indicated directory, compile using:
+The [build helper](../Software/build-firmware.ps1) compiles `Software/DrowningWearable/` directly. From the repository root, with the dependencies already downloaded to the indicated directory, compile using:
 
 ```powershell
 ./Software/build-firmware.ps1 -LibraryDirectory ./tmp/revf-build/libraries -BlueRoboticsLibraryDirectory ./tmp/revf-build/libraries/BlueRobotics_MS5837_Library-1.1.1

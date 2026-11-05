@@ -47,10 +47,14 @@ if (-not $CoreDataDirectory) {
 $sketchbook = $existingConfig.directories.user
 if (-not $sketchbook) { $sketchbook = Join-Path $buildRoot 'sketchbook' }
 
-$sketchRoot = Join-Path $buildRoot 'DrowningWearable'
+# Compile the same sketch folder that opens directly in Arduino IDE.
+$sketchRoot = Join-Path $PSScriptRoot 'DrowningWearable'
+if (-not (Test-Path -LiteralPath (Join-Path $sketchRoot 'DrowningWearable.ino'))) {
+  throw 'The DrowningWearable sketch folder is missing its primary .ino file.'
+}
 $binaryRoot = Join-Path $buildRoot 'build'
 $configFile = Join-Path $buildRoot 'arduino-cli.yaml'
-New-Item -ItemType Directory -Force -Path $sketchRoot, $binaryRoot | Out-Null
+New-Item -ItemType Directory -Force -Path $binaryRoot | Out-Null
 @{
   directories = @{
     data = [IO.Path]::GetFullPath($CoreDataDirectory)
@@ -59,11 +63,6 @@ New-Item -ItemType Directory -Force -Path $sketchRoot, $binaryRoot | Out-Null
   }
   build_cache = @{ path = (Join-Path $buildRoot 'cache') }
 } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $configFile -Encoding utf8
-
-# Arduino requires a folder matching the primary sketch name.
-Get-ChildItem -LiteralPath $PSScriptRoot -File |
-  Where-Object { $_.Extension -in @('.ino', '.h', '.hpp', '.cpp', '.c') } |
-  ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $sketchRoot -Force }
 
 $arguments = @(
   'compile', '--config-file', $configFile,

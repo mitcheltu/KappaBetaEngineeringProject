@@ -1,4 +1,4 @@
-// Matches Software/DrowningWearable.ino: fixed 20-byte, little-endian packets.
+// Matches Software/DrowningWearable/DrowningWearable.ino: fixed 20-byte, little-endian packets.
 export const SERVICE_UUID = 'e81b6200-7e57-4d8e-b6f4-889c1d4e8270';
 export const TELEMETRY_UUIDS = {
   depth: 'e81b6210-7e57-4d8e-b6f4-889c1d4e8270',
