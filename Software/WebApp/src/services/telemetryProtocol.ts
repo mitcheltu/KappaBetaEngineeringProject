@@ -22,7 +22,7 @@ export type PpgReading = Header & {
   heartRateBpm: number | null; spo2Percent: number | null;
 };
 export type SystemReading = Header & {
-  batteryV: number | null; valveEnabled: boolean; valveOn: boolean;
+  batteryV: number | null; pumpEnabled: boolean; pumpOn: boolean;
   cancelPressed: boolean; sosPressed: boolean; remainingMs: number;
   vibrationOn: boolean; countdownActive: boolean;
   ppgOverflowCount: number; sensorErrors: number;
@@ -70,7 +70,7 @@ export function decodePacket<K extends ReadingKind>(kind: K, packet: DataView): 
       const battery = packet.getUint16(8, true);
       reading = { ...header,
         batteryV: flags & 1 && battery !== 0xffff ? battery / 1000 : null,
-        valveEnabled: Boolean(flags & 2), valveOn: Boolean(flags & 4),
+        pumpEnabled: Boolean(flags & 2), pumpOn: Boolean(flags & 4),
         cancelPressed: Boolean(flags & 8), sosPressed: Boolean(flags & 16),
         vibrationOn: Boolean(flags & 32), countdownActive: Boolean(flags & 64),
         remainingMs: packet.getUint16(10, true),

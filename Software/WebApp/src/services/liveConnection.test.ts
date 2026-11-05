@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createLiveConnectionService, type BleDevice, type BluetoothAdapter, type GattCharacteristic, type GattServer } from './liveConnection';
 import { decodePacket, SERVICE_UUID, TELEMETRY_UUIDS, ZERO_DEPTH_UUID } from './telemetryProtocol';
+import { HISTORY_UUIDS } from './historyProtocol';
 
 function packet(flags = 0, uptime = 1234, sequence = 12) {
   const view = new DataView(new ArrayBuffer(20));
@@ -45,28 +46,28 @@ test('system packet carries status without exposing an actuator command', () => 
   system.setUint16(8, 4100, true); system.setUint16(10, 250, true);
   system.setUint32(12, 42, true); system.setUint32(16, 123, true);
   assert.deepEqual(decodePacket('system', system), {
-    sequence: 12, uptimeMs: 1234, batteryV: 4.1, valveEnabled: true, valveOn: true,
+    sequence: 12, uptimeMs: 1234, batteryV: 4.1, pumpEnabled: true, pumpOn: true,
     cancelPressed: true, sosPressed: true, remainingMs: 250, ppgOverflowCount: 42, sensorErrors: 123,
     vibrationOn: false, countdownActive: false,
   });
   system.setUint16(8, 0xffff, true); assert.equal(decodePacket('system', system).batteryV, null);
 });
 
-test('system flags distinguish a vibrating countdown from a valve held open', () => {
+test('system flags distinguish a vibrating countdown from a running pump', () => {
   const system = packet(1 | 2 | 32 | 64);
   system.setUint16(10, 10000, true);
   const countdown = decodePacket('system', system);
   assert.equal(countdown.vibrationOn, true);
   assert.equal(countdown.countdownActive, true);
-  assert.equal(countdown.valveOn, false);
+  assert.equal(countdown.pumpOn, false);
   assert.equal(countdown.remainingMs, 10000);
   system.setUint8(1, 1 | 2 | 4);
   system.setUint16(10, 0, true);
-  const open = decodePacket('system', system);
-  assert.equal(open.vibrationOn, false);
-  assert.equal(open.countdownActive, false);
-  assert.equal(open.valveOn, true);
-  assert.equal(open.remainingMs, 0);
+  const running = decodePacket('system', system);
+  assert.equal(running.vibrationOn, false);
+  assert.equal(running.countdownActive, false);
+  assert.equal(running.pumpOn, true);
+  assert.equal(running.remainingMs, 0);
 });
 
 test('malformed lengths and unknown protocol versions are rejected', () => {
@@ -95,7 +96,16 @@ class Characteristic extends Events implements GattCharacteristic {
   notify(value: DataView) { this.value = value; this.emit('characteristicvaluechanged'); }
 }
 function fixture() {
-  const characteristics = Object.fromEntries([...Object.values(TELEMETRY_UUIDS), ZERO_DEPTH_UUID].map(uuid => [uuid, new Characteristic()]));
+  const characteristics = Object.fromEntries([...Object.values(TELEMETRY_UUIDS), ZERO_DEPTH_UUID, ...Object.values(HISTORY_UUIDS)].map(uuid => [uuid, new Characteristic()]));
+  const identity = new DataView(new ArrayBuffer(20)); identity.setUint8(0, 1); identity.setUint8(1, 32);
+  characteristics[HISTORY_UUIDS.identity].value = identity; // Explicit live-only fixture needs no IndexedDB.
+  characteristics[HISTORY_UUIDS.command].writeValueWithResponse = async bytes => {
+    characteristics[HISTORY_UUIDS.command].writes.push([...bytes]);
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const status = new DataView(new ArrayBuffer(20)); status.setUint8(0, bytes[0] === 3 ? 5 : 3);
+    status.setUint8(1, 1); status.setUint16(2, view.getUint16(2, true), true);
+    if (bytes[0] === 1 || bytes[0] === 3) characteristics[HISTORY_UUIDS.status].notify(status);
+  };
   const device: BleDevice & Events = Object.assign(new Events(), { name: 'KappaBeta-RevF', gatt: undefined as GattServer | undefined });
   const server: GattServer = {
     connected: false,
@@ -103,7 +113,10 @@ function fixture() {
     disconnect() { const wasConnected = this.connected; this.connected = false; if (wasConnected) device.emit('gattserverdisconnected'); },
     async getPrimaryService(uuid) {
       assert.equal(uuid, SERVICE_UUID);
-      return { async getCharacteristic(characteristicUuid: string) { return characteristics[characteristicUuid]; } };
+      return { async getCharacteristic(characteristicUuid: string) {
+        if (!characteristics[characteristicUuid]) throw new Error('Missing characteristic');
+        return characteristics[characteristicUuid];
+      } };
     },
   };
   device.gatt = server;
@@ -177,4 +190,66 @@ test('cancelled selection and late chooser completion never connect', async t =>
   const cancelled = createLiveConnectionService({ bluetooth: { async requestDevice() { const error = new Error('Cancelled'); error.name = 'NotFoundError'; throw error; } } });
   t.after(() => cancelled.dispose()); await cancelled.connect();
   assert.equal(cancelled.getSnapshot().status, 'disconnected');
+});
+
+test('live subscriptions wait for history LIVE and missing history requires firmware update', async t => {
+  const f = fixture();
+  const originalWrite = f.characteristics[HISTORY_UUIDS.command].writeValueWithResponse;
+  let release!: () => void;
+  f.characteristics[HISTORY_UUIDS.command].writeValueWithResponse = async bytes => {
+    if (bytes[0] === 1) await new Promise<void>(resolve => { release = resolve; });
+    await originalWrite(bytes);
+  };
+  const service = createLiveConnectionService({ bluetooth: f.bluetooth }); t.after(() => service.dispose());
+  const connecting = service.connect();
+  while (!release) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(service.getSnapshot().status, 'syncing');
+  assert.equal(f.characteristics[TELEMETRY_UUIDS.depth].listeners.size, 0);
+  release(); await connecting;
+  assert.equal(service.getSnapshot().status, 'connected');
+  assert.equal(service.getSnapshot().history?.phase, 'live-only');
+  service.disconnect();
+  delete f.characteristics[HISTORY_UUIDS.identity];
+  await service.connect();
+  assert.equal(service.getSnapshot().status, 'error');
+  assert.match(service.getSnapshot().message, /Firmware update required/);
+});
+
+test('cancel during initial history rejects pending work and removes subscriptions', async t => {
+  const f = fixture(); f.characteristics[HISTORY_UUIDS.command].writeValueWithResponse = async () => {};
+  const service = createLiveConnectionService({ bluetooth: f.bluetooth }); t.after(() => service.dispose());
+  const connecting = service.connect();
+  while (service.getSnapshot().status !== 'syncing') await new Promise(resolve => setImmediate(resolve));
+  service.disconnect(); await connecting;
+  assert.equal(service.getSnapshot().status, 'disconnected');
+  for (const characteristic of Object.values(f.characteristics)) assert.equal(characteristic.listeners.get('characteristicvaluechanged')?.size ?? 0, 0);
+});
+
+test('LIVE notification before the write resolves cannot overlap subsequent GATT operations', async t => {
+  const f = fixture(), historyCommand = f.characteristics[HISTORY_UUIDS.command];
+  const originalWrite = historyCommand.writeValueWithResponse; let release!: () => void;
+  historyCommand.writeValueWithResponse = async bytes => {
+    await originalWrite(bytes);
+    if (bytes[0] === 3) await new Promise<void>(resolve => { release = resolve; });
+  };
+  const service = createLiveConnectionService({ bluetooth: f.bluetooth }); t.after(() => service.dispose());
+  const connecting = service.connect();
+  while (!release) await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.characteristics[TELEMETRY_UUIDS.depth].listeners.size, 0);
+  assert.equal(service.getSnapshot().status, 'syncing');
+  release(); await connecting; assert.equal(service.getSnapshot().status, 'connected');
+});
+
+test('late completion of a cancelled connect cannot disconnect a newer connection to the same device', async t => {
+  const f = fixture(); let release!: () => void, calls = 0;
+  f.server.connect = async () => {
+    if (++calls === 1) await new Promise<void>(resolve => { release = resolve; });
+    f.server.connected = true; return f.server;
+  };
+  const service = createLiveConnectionService({ bluetooth: f.bluetooth }); t.after(() => service.dispose());
+  const old = service.connect(); while (!release) await new Promise(resolve => setImmediate(resolve));
+  service.disconnect(); await service.connect(); assert.equal(service.getSnapshot().status, 'connected');
+  release(); await old;
+  assert.equal(f.server.connected, true); assert.equal(service.getSnapshot().status, 'connected');
 });

@@ -27,6 +27,7 @@ yarn-error.log*
 # Ignore Markdown files except README.md files.
 *.md
 !README.md
+!/Software/HISTORY_PROTOCOL.md
 
 # Rev F local toolchain downloads, binaries, and schematic renderings
 /tmp/revf-build/

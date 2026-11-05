@@ -2,6 +2,9 @@ import {
   decodePacket, SERVICE_UUID, STALE_AFTER_MS, TELEMETRY_UUIDS, ZERO_DEPTH_UUID,
   type ReadingKind, type Readings,
 } from './telemetryProtocol';
+import { decodeIdentity, HISTORY_UUIDS } from './historyProtocol';
+import { createIndexedDbHistoryStore, type HistoryStore } from './historyStore';
+import { createHistoryTransfer, type HistoryProgress } from './historyTransfer';
 
 // Narrow Web Bluetooth interfaces avoid a runtime dependency and allow transport tests.
 export interface GattCharacteristic {
@@ -28,12 +31,12 @@ export interface BluetoothAdapter {
   requestDevice(options: { filters: { services: string[] }[] }): Promise<BleDevice>;
 }
 
-export type LiveStatus = 'disconnected' | 'selecting' | 'connecting' | 'connected' | 'lost' | 'error' | 'unsupported';
+export type LiveStatus = 'disconnected' | 'selecting' | 'connecting' | 'syncing' | 'connected' | 'lost' | 'error' | 'unsupported';
 type TimedReading<K extends ReadingKind> = { data: Readings[K]; receivedAt: number; stale: boolean };
 export type LiveTelemetry = { [K in ReadingKind]: TimedReading<K> | null };
 export type LiveSnapshot = Readonly<{
   status: LiveStatus; deviceName: string | null; message: string;
-  telemetry: LiveTelemetry; zeroPending: boolean;
+  telemetry: LiveTelemetry; zeroPending: boolean; history: HistoryProgress | null;
 }>;
 const emptyTelemetry = (): LiveTelemetry => ({ depth: null, imu: null, ppg: null, system: null });
 
@@ -44,12 +47,13 @@ function browserAdapter(): BluetoothAdapter | undefined {
 
 export function createLiveConnectionService(options: {
   bluetooth?: BluetoothAdapter; now?: () => number; staleAfterMs?: number; checkIntervalMs?: number;
+  historyStore?: HistoryStore; historyTimeoutMs?: number; historyPollIntervalMs?: number;
 } = {}) {
   const now = options.now ?? Date.now;
   const staleAfterMs = options.staleAfterMs ?? STALE_AFTER_MS;
   const listeners = new Set<() => void>();
   let snapshot: LiveSnapshot = Object.freeze({
-    status: 'disconnected', deviceName: null, message: '', telemetry: emptyTelemetry(), zeroPending: false,
+    status: 'disconnected', deviceName: null, message: '', telemetry: emptyTelemetry(), zeroPending: false, history: null,
   });
   let generation = 0;
   let device: BleDevice | undefined;
@@ -58,6 +62,22 @@ export function createLiveConnectionService(options: {
   let cleanupNotifications: (() => void)[] = [];
   let disconnectListener: (() => void) | undefined;
   let disposed = false;
+  const historyStore = options.historyStore ?? createIndexedDbHistoryStore();
+  let transfer: ReturnType<typeof createHistoryTransfer> | undefined;
+  let gattQueue: Promise<unknown> = Promise.resolve();
+  function gattOperation<T>(activeGeneration: number, operation: () => Promise<T>): Promise<T> {
+    const result = gattQueue.then(() => {
+      if (activeGeneration !== generation || disposed) throw new Error('Bluetooth connection cancelled.');
+      return operation();
+    });
+    gattQueue = result.catch(() => {});
+    return result;
+  }
+  function disconnectAbandoned(server: GattServer, previous: BleDevice) {
+    // Reconnecting can reuse the same device/server object. A late completion
+    // from an older attempt must not disconnect the newer connection.
+    if (device !== previous) server.disconnect();
+  }
 
   function publish(patch: Partial<LiveSnapshot>) {
     if (disposed) return;
@@ -66,6 +86,8 @@ export function createLiveConnectionService(options: {
   }
 
   function release() {
+    transfer?.cancel(); transfer = undefined;
+    gattQueue = Promise.resolve();
     if (timer !== undefined) clearInterval(timer);
     timer = undefined;
     for (const cleanup of cleanupNotifications) cleanup();
@@ -116,7 +138,7 @@ export function createLiveConnectionService(options: {
   }
 
   async function connect() {
-    if (disposed || ['selecting', 'connecting', 'connected'].includes(snapshot.status)) return;
+    if (disposed || ['selecting', 'connecting', 'syncing', 'connected'].includes(snapshot.status)) return;
     const bluetooth = options.bluetooth ?? browserAdapter();
     if (!bluetooth) {
       publish({ status: 'unsupported', message: 'Web Bluetooth is unavailable. Open this page over HTTPS or localhost in Chrome on Windows, macOS, or Android.' });
@@ -124,7 +146,7 @@ export function createLiveConnectionService(options: {
     }
     const activeGeneration = ++generation;
     release();
-    publish({ status: 'selecting', telemetry: emptyTelemetry(), message: '', deviceName: null });
+    publish({ status: 'selecting', telemetry: emptyTelemetry(), message: '', deviceName: null, history: null });
     let chosen: BleDevice | undefined;
     try {
       // Do not add an await before this call: requestDevice requires the button gesture.
@@ -141,25 +163,69 @@ export function createLiveConnectionService(options: {
       chosen.addEventListener('gattserverdisconnected', disconnectListener);
       publish({ status: 'connecting', deviceName: chosen.name || 'KappaBeta-RevF' });
       const server = await chosen.gatt.connect();
-      if (activeGeneration !== generation || disposed) { server.disconnect(); return; }
+      if (activeGeneration !== generation || disposed) { disconnectAbandoned(server, chosen); return; }
       const service = await server.getPrimaryService(SERVICE_UUID);
-      for (const kind of Object.keys(TELEMETRY_UUIDS) as ReadingKind[]) {
-        const characteristic = await service.getCharacteristic(TELEMETRY_UUIDS[kind]);
-        if (activeGeneration !== generation || disposed) { server.disconnect(); return; }
-        const notify = () => { if (characteristic.value) receive(kind, characteristic.value, activeGeneration); };
+      if (activeGeneration !== generation || disposed) { disconnectAbandoned(server, chosen); return; }
+      let historyCharacteristics: Record<keyof typeof HISTORY_UUIDS, GattCharacteristic>;
+      try {
+        historyCharacteristics = {
+          identity: await service.getCharacteristic(HISTORY_UUIDS.identity),
+          status: await service.getCharacteristic(HISTORY_UUIDS.status),
+          data: await service.getCharacteristic(HISTORY_UUIDS.data),
+          command: await service.getCharacteristic(HISTORY_UUIDS.command),
+        };
+      } catch {
+        throw new Error('Firmware update required: this wearable does not provide the sensor history service.');
+      }
+      if (activeGeneration !== generation || disposed) { disconnectAbandoned(server, chosen); return; }
+      const identity = decodeIdentity(await historyCharacteristics.identity.readValue());
+      if (activeGeneration !== generation || disposed) { disconnectAbandoned(server, chosen); return; }
+      const currentTransfer = createHistoryTransfer({ identity, store: historyStore,
+        write: bytes => gattOperation(activeGeneration, () => historyCharacteristics.command.writeValueWithResponse(bytes)),
+        readStatus: () => gattOperation(activeGeneration, () => historyCharacteristics.status.readValue()),
+        now, timeoutMs: options.historyTimeoutMs, pollIntervalMs: options.historyPollIntervalMs,
+        onProgress: history => { if (activeGeneration === generation) publish({ history }); },
+        onError: error => {
+          if (activeGeneration !== generation) return;
+          generation += 1; release();
+          publish({ status: 'error', telemetry: emptyTelemetry(), zeroPending: false, message: error.message });
+        },
+      });
+      transfer = currentTransfer;
+      for (const kind of ['status', 'data'] as const) {
+        const characteristic = historyCharacteristics[kind];
+        const notify = () => {
+          if (activeGeneration !== generation || !characteristic.value) return;
+          if (kind === 'status') currentTransfer.handleStatus(characteristic.value);
+          else currentTransfer.handleData(characteristic.value);
+        };
         characteristic.addEventListener('characteristicvaluechanged', notify);
         cleanupNotifications.push(() => characteristic.removeEventListener('characteristicvaluechanged', notify));
         await characteristic.startNotifications();
-        if (activeGeneration !== generation || disposed) { server.disconnect(); return; }
-        receive(kind, await characteristic.readValue(), activeGeneration);
+        if (activeGeneration !== generation || disposed) { disconnectAbandoned(server, chosen); return; }
       }
-      const zero = await service.getCharacteristic(ZERO_DEPTH_UUID);
-      if (activeGeneration !== generation || disposed) { server.disconnect(); return; }
+      publish({ status: 'syncing' });
+      await currentTransfer.start();
+      if (activeGeneration !== generation || disposed) { disconnectAbandoned(server, chosen); return; }
+      for (const kind of Object.keys(TELEMETRY_UUIDS) as ReadingKind[]) {
+        const characteristic = await gattOperation(activeGeneration, () => service.getCharacteristic(TELEMETRY_UUIDS[kind]));
+        if (activeGeneration !== generation || disposed) { disconnectAbandoned(server, chosen); return; }
+        const notify = () => { if (characteristic.value) receive(kind, characteristic.value, activeGeneration); };
+        characteristic.addEventListener('characteristicvaluechanged', notify);
+        cleanupNotifications.push(() => characteristic.removeEventListener('characteristicvaluechanged', notify));
+        await gattOperation(activeGeneration, () => characteristic.startNotifications());
+        if (activeGeneration !== generation || disposed) { disconnectAbandoned(server, chosen); return; }
+        receive(kind, await gattOperation(activeGeneration, () => characteristic.readValue()), activeGeneration);
+      }
+      const zero = await gattOperation(activeGeneration, () => service.getCharacteristic(ZERO_DEPTH_UUID));
+      if (activeGeneration !== generation || disposed) { disconnectAbandoned(server, chosen); return; }
       command = zero;
       publish({ status: 'connected' });
       timer = setInterval(refreshStaleness, options.checkIntervalMs ?? 500);
+      currentTransfer.enablePolling();
     } catch (error) {
-      if (activeGeneration !== generation || disposed) { chosen?.gatt?.disconnect(); return; }
+      if (activeGeneration !== generation || disposed) { if (chosen?.gatt) disconnectAbandoned(chosen.gatt, chosen); return; }
+      generation += 1;
       release();
       const cancelled = error instanceof Error && error.name === 'NotFoundError';
       publish({ status: cancelled ? 'disconnected' : 'error', telemetry: emptyTelemetry(),
@@ -174,7 +240,8 @@ export function createLiveConnectionService(options: {
     publish({ zeroPending: true, message: 'Requesting a surface pressure baseline…',
       telemetry: { ...snapshot.telemetry, depth: depth ? { ...depth, data: { ...depth.data, depthM: null } } : null } });
     try {
-      await command.writeValueWithResponse(new Uint8Array([1]));
+      const currentCommand = command;
+      await gattOperation(activeGeneration, () => currentCommand.writeValueWithResponse(new Uint8Array([1])));
       if (activeGeneration === generation) publish({ zeroPending: false, message: 'Surface zero requested; allow the next readings to settle. Check Serial for the calibration result.' });
     } catch (error) {
       if (activeGeneration === generation) publish({ zeroPending: false, message: error instanceof Error ? error.message : 'Surface zero failed.' });

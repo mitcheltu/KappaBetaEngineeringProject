@@ -1,28 +1,36 @@
 #pragma once
 #include <stdint.h>
 
-// ESP32 GPIO numbers traced from Rev F (2026-11-03).
-// User confirmed intended wiring; hardware is not yet assembled.
+// ESP32-S3-DevKitC-1-N8R8 GPIO numbers, not physical header positions.
+// Rev F wiring, with the user-requested pump replacing the solenoid on GPIO16.
+// Electrical/README.md lists the pin and power assumptions still to validate.
 namespace Config {
-constexpr int I2C_SDA = 8, I2C_SCL = 9;
-constexpr int IMU_INT1 = 4, PPG_INT = 15;
-constexpr int CANCEL_BUTTON = 5, SOS_BUTTON = 6;
-constexpr int MOTOR_GATE = 7, SOLENOID_GATE = 16, BATTERY_ADC = 1;
+constexpr int I2C_SDA = 8, I2C_SCL = 9; // Shared, pulled up to 3.3 V.
+constexpr int IMU_INT1 = 4, PPG_INT = 15; // Inputs; currently polled over I2C.
+constexpr int CANCEL_BUTTON = 5, SOS_BUTTON = 6; // NO reeds to GND, active LOW.
+constexpr int VIBRATION_GATE = 7; // Rev F MOTOR_EN -> R1 -> Q1; active HIGH.
+constexpr int PUMP_GATE = 16; // Former SOL_EN -> R3 -> Q2; active HIGH.
+constexpr int BATTERY_ADC = 1; // ADC1, midpoint of R5/R6 (100k/100k).
 constexpr uint8_t IMU_ADDRESS = 0x68, PPG_ADDRESS = 0x57, DEPTH_ADDRESS = 0x76;
 constexpr uint32_t I2C_HZ = 400000;
 constexpr float FLUID_DENSITY_KG_M3 = 997.0f; // Fresh water; seawater: 1029.
 constexpr float BATTERY_DIVIDER_RATIO = 2.0f; // R5 = R6 = 100 kohm.
 
-// Explicitly requested manual bench test: SOS -> vibrate 10s -> valve open.
+// Requested manual bench test: SOS -> vibrate 10s -> pump runs until Cancel.
 // Cancel stops both. This enables GPIO commands, not a hardware certification.
-// AOMAG B01KMI3HVI: listing 12 V / 6.5 W, continuous duty. Validate driver load.
+// CrocSee B09XH1GYYQ: 12 V recommended, <=350 mA listed load current.
+// Startup/stall current, Q2 drive and D3/boost suitability still need validation.
 constexpr bool ENABLE_ACTUATOR_TESTS = true;
-constexpr uint16_t VALVE_MIN_BATTERY_MV = 3400;
-// No guessed PWM hold duty. User requested full-voltage OPEN until Cancel.
+constexpr uint16_t ACTUATOR_MIN_BATTERY_MV = 3400; // Existing battery interlock.
+// Steady HIGH/LOW switching, no PWM or pump-specific library. No flow feedback.
 
 // Example optical gate, not a validated wrist/contact classifier.
 constexpr uint32_t PPG_MIN_IR = 50000, PPG_MAX_ADC = 262000;
 constexpr uint32_t TELEMETRY_PERIOD_MS = 200;
+constexpr uint32_t HISTORY_BYTES = 4 * 1024 * 1024;
+constexpr uint32_t ML_WORKSPACE_BYTES = 1024 * 1024; // Two future model workspaces.
+constexpr uint32_t PSRAM_HEADROOM_BYTES = 1024 * 1024;
+constexpr uint32_t IMU_PERIOD_MS = 20, DEPTH_PERIOD_MS = 200;
 constexpr char DEVICE_NAME[] = "KappaBeta-RevF";
 constexpr char SERVICE_UUID[] = "e81b6200-7e57-4d8e-b6f4-889c1d4e8270";
 constexpr char DEPTH_UUID[] = "e81b6210-7e57-4d8e-b6f4-889c1d4e8270";
@@ -30,4 +38,8 @@ constexpr char IMU_UUID[] = "e81b6211-7e57-4d8e-b6f4-889c1d4e8270";
 constexpr char PPG_UUID[] = "e81b6212-7e57-4d8e-b6f4-889c1d4e8270";
 constexpr char SYSTEM_UUID[] = "e81b6213-7e57-4d8e-b6f4-889c1d4e8270";
 constexpr char ZERO_DEPTH_UUID[] = "e81b6220-7e57-4d8e-b6f4-889c1d4e8270";
+constexpr char HISTORY_INFO_UUID[] = "e81b6230-7e57-4d8e-b6f4-889c1d4e8270";
+constexpr char HISTORY_STATUS_UUID[] = "e81b6231-7e57-4d8e-b6f4-889c1d4e8270";
+constexpr char HISTORY_DATA_UUID[] = "e81b6232-7e57-4d8e-b6f4-889c1d4e8270";
+constexpr char HISTORY_COMMAND_UUID[] = "e81b6233-7e57-4d8e-b6f4-889c1d4e8270";
 }

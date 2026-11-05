@@ -1,6 +1,8 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { createLiveConnectionService } from '../services/liveConnection';
+import { createIndexedDbHistoryStore } from '../services/historyStore';
+import { SavedHistoryPanel } from './SavedHistoryPanel';
 import { colors } from '../theme';
 import { ActionButton } from './ActionButton';
 
@@ -12,23 +14,24 @@ const vector = (values: [number, number, number] | null | undefined, digits: num
   values ? values.map(value => value.toFixed(digits)).join(' / ') : '—';
 
 export function LiveTelemetryPanel() {
-  const [service] = useState(() => createLiveConnectionService());
+  const [historyStore] = useState(() => createIndexedDbHistoryStore());
+  const [service] = useState(() => createLiveConnectionService({ historyStore }));
   const snapshot = useSyncExternalStore(service.subscribe, service.getSnapshot, service.getSnapshot);
   useEffect(() => () => service.disconnect(), [service]);
   const connected = snapshot.status === 'connected';
-  const pending = snapshot.status === 'selecting' || snapshot.status === 'connecting';
+  const pending = snapshot.status === 'selecting' || snapshot.status === 'connecting' || snapshot.status === 'syncing';
   const { depth, imu, ppg, system } = snapshot.telemetry;
   const d = depth && !depth.stale ? depth.data : null;
   const i = imu && !imu.stale ? imu.data : null;
   const p = ppg && !ppg.stale ? ppg.data : null;
   const s = system && !system.stale ? system.data : null;
   const actuatorStatus = !s ? 'Waiting for device status'
-    : s.countdownActive ? `Countdown ${Math.ceil(s.remainingMs / 1000)} s / ${s.vibrationOn ? 'vibrating' : 'motor off'}`
-      : s.valveOn ? 'Valve open until Cancel'
-        : s.valveEnabled ? 'Idle · valve closed' : 'Valve disabled';
+    : s.countdownActive ? `Countdown ${Math.ceil(s.remainingMs / 1000)} s / ${s.vibrationOn ? 'vibrating' : 'vibration off'}`
+      : s.pumpOn ? 'Pump running until Cancel'
+        : s.pumpEnabled ? 'Idle · pump stopped' : 'Pump disabled';
   const hasStale = Object.values(snapshot.telemetry).some(reading => reading?.stale);
-  const linkLabel = connected ? (hasStale ? 'CONNECTED / DATA STALE' : 'CONNECTED / LIVE')
-    : pending ? 'CONNECTING' : snapshot.status === 'lost' ? 'LINK LOST' : 'OFFLINE';
+  const linkLabel = connected ? (hasStale ? 'CONNECTED / DATA STALE' : snapshot.history?.phase === 'live-only' ? 'CONNECTED / LIVE ONLY' : 'CONNECTED / LIVE')
+    : snapshot.status === 'syncing' ? 'SAVING HISTORY BEFORE LIVE' : pending ? 'CONNECTING' : snapshot.status === 'lost' ? 'LINK LOST' : 'OFFLINE';
 
   return <View nativeID="live-telemetry" style={styles.panel}>
     <View style={styles.header}>
@@ -41,7 +44,8 @@ export function LiveTelemetryPanel() {
         icon={connected || pending ? undefined : 'bluetooth'} secondary={connected || pending}
         onPress={connected || pending ? service.disconnect : () => { void service.connect(); }} />
     </View>
-    <Text style={styles.description}>Select KappaBeta-RevF in the browser’s Bluetooth picker. This panel shows measurements from the wearable; the controls above are a separate demo.</Text>
+    <Text style={styles.description}>Select KappaBeta-RevF in the browser’s Bluetooth picker. Saved sensor history downloads first, then live readings begin. The controls above are a separate demo.</Text>
+    <SavedHistoryPanel store={historyStore} progress={snapshot.history} connected={connected || snapshot.status === 'syncing'} />
     <View style={styles.grid}>
       <Reading label="DEPTH" value={format(d?.depthM, 3, 'm')} note={depth?.stale ? 'Stale reading' : d?.pressurePa != null && d.depthM == null ? 'Zero at the surface first' : 'Relative to surface baseline'} />
       <Reading label="PRESSURE" value={format(d?.pressurePa, 0, 'Pa')} note={`Temperature ${format(d?.temperatureC, 2, '°C')}`} />
@@ -65,10 +69,10 @@ export function LiveTelemetryPanel() {
     </View>
     {!!snapshot.message && <Text accessibilityLiveRegion="polite" style={styles.message}>{snapshot.message}</Text>}
     {s && <View style={{ gap: 6 }}>
-      <Text style={styles.diagnostics}>Motor {s.vibrationOn ? 'ON' : 'OFF'} · PPG overflows {s.ppgOverflowCount} · Sensor errors {s.sensorErrors} · Cancel {s.cancelPressed ? 'pressed' : 'released'} · SOS {s.sosPressed ? 'pressed' : 'released'}</Text>
-      <Text style={styles.footnote}>Valve and motor status show commanded outputs. Water flow is not measured. Use the physical Cancel button to abort the test or close the valve.</Text>
+      <Text style={styles.diagnostics}>Vibration {s.vibrationOn ? 'ON' : 'OFF'} · PPG overflows {s.ppgOverflowCount} · Sensor errors {s.sensorErrors} · Cancel {s.cancelPressed ? 'pressed' : 'released'} · SOS {s.sosPressed ? 'pressed' : 'released'}</Text>
+      <Text style={styles.footnote}>Pump and vibration status show commanded outputs. Water flow is not measured. Use the physical Cancel button to abort the test or stop the pump.</Text>
     </View>}
-    <Text style={styles.footnote}>Use Chrome on Windows, macOS, or Android over HTTPS or localhost. No drowning detection or remote valve activation.</Text>
+    <Text style={styles.footnote}>Use Chrome on Windows, macOS, or Android over HTTPS or localhost. No drowning detection or remote pump activation.</Text>
   </View>;
 }
 

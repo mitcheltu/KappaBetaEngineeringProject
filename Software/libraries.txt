@@ -1,0 +1,4 @@
+BlueRobotics MS5837 Library@1.1.1
+SparkFun BMI270 Arduino Library@1.0.3
+SparkFun MAX3010x Pulse and Proximity Sensor Library@1.1.2
+NimBLE-Arduino@2.5.2

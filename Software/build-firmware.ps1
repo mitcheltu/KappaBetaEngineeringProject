@@ -1,6 +1,7 @@
 param(
   [string]$ArduinoCli,
   [string]$LibraryDirectory,
+  [string]$BlueRoboticsLibraryDirectory,
   [string]$CoreDataDirectory,
   [string]$BuildDirectory,
   [switch]$VerboseCompiler
@@ -67,11 +68,20 @@ Get-ChildItem -LiteralPath $PSScriptRoot -File |
 $arguments = @(
   'compile', '--config-file', $configFile,
   '--fqbn', 'esp32:esp32:esp32s3:FlashSize=8M,PartitionScheme=default_8MB,PSRAM=opi,CDCOnBoot=cdc',
-  '--warnings', 'all', '--jobs', '8', '--build-path', $binaryRoot,
-  '--libraries', (Join-Path $PSScriptRoot 'libraries')
+  '--warnings', 'all', '--jobs', '8', '--build-path', $binaryRoot
 )
 if ($LibraryDirectory) {
   $arguments += @('--libraries', (Resolve-Path -LiteralPath $LibraryDirectory).Path)
+}
+if ($BlueRoboticsLibraryDirectory) {
+  # Other libraries also export MS5837.h; explicitly prefer the official one.
+  $depthLibrary = (Resolve-Path -LiteralPath $BlueRoboticsLibraryDirectory).Path
+  $depthProperties = Join-Path $depthLibrary 'library.properties'
+  if (-not (Test-Path -LiteralPath $depthProperties) -or
+      -not (Select-String -LiteralPath $depthProperties -Pattern '^name=BlueRobotics MS5837 Library\s*$' -Quiet)) {
+    throw '-BlueRoboticsLibraryDirectory must contain the official BlueRobotics MS5837 Library.'
+  }
+  $arguments += @('--library', $depthLibrary)
 }
 if ($VerboseCompiler) { $arguments += '--verbose' }
 $arguments += $sketchRoot

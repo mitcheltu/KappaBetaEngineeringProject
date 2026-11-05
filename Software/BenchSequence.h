@@ -4,14 +4,14 @@
 // Manual bench sequence only. GPIO writes belong to the caller's control task.
 class BenchSequence {
  public:
-  enum class Stage : uint8_t { IDLE, COUNTDOWN, OPEN };
+  enum class Stage : uint8_t { IDLE, COUNTDOWN, RUNNING };
   static constexpr uint32_t COUNTDOWN_MS = 10000;
   Stage stage = Stage::IDLE;
 
-  // openDurationMs == 0 holds OPEN until Cancel/disable/low battery.
+  // runDurationMs == 0 holds RUNNING until Cancel/disable/low battery.
   // A positive duration is captured when a new sequence starts.
   void update(uint32_t now, bool enabled, bool cancel, bool sosPressed,
-              bool batteryOk, uint32_t openDurationMs) {
+              bool batteryOk, uint32_t runDurationMs) {
     // Cancel has priority even at either transition deadline. Aborted sequences
     // never resume, and an already-held SOS cannot restart one when Cancel clears.
     if (cancel || !enabled || !batteryOk) {
@@ -23,21 +23,21 @@ class BenchSequence {
     if (stage == Stage::COUNTDOWN) {
       sosArmed = false;
       if (now - phaseStartedMs >= COUNTDOWN_MS) {
-        stage = Stage::OPEN;
+        stage = Stage::RUNNING;
         phaseStartedMs = now;
       }
       return;
     }
-    if (stage == Stage::OPEN) {
+    if (stage == Stage::RUNNING) {
       sosArmed = false;
-      if (openForMs != 0 && now - phaseStartedMs >= openForMs)
+      if (runForMs != 0 && now - phaseStartedMs >= runForMs)
         stage = Stage::IDLE;
       return;
     }
 
     // Observe release while idle before accepting a press. This prevents a held
     // reed at boot, a press during a sequence, or a held press after abort from
-    // starting/restarting the valve. Releasing SOS does not cancel a sequence.
+    // starting/restarting the pump. Releasing SOS does not cancel a sequence.
     if (!sosPressed) {
       sosArmed = true;
       return;
@@ -46,12 +46,12 @@ class BenchSequence {
       sosArmed = false;
       stage = Stage::COUNTDOWN;
       phaseStartedMs = now;
-      openForMs = openDurationMs;
+      runForMs = runDurationMs;
     }
   }
 
   bool vibrationOn() const { return stage == Stage::COUNTDOWN; }
-  bool valveOn() const { return stage == Stage::OPEN; }
+  bool pumpOn() const { return stage == Stage::RUNNING; }
 
   uint32_t remainingCountdownMs(uint32_t now) const {
     if (stage != Stage::COUNTDOWN) return 0;
@@ -59,16 +59,16 @@ class BenchSequence {
     return elapsed < COUNTDOWN_MS ? COUNTDOWN_MS - elapsed : 0;
   }
 
-  // Zero means no timed closure when OPEN with openDurationMs == 0; otherwise
+  // Zero means no timed stop when RUNNING with runDurationMs == 0; otherwise
   // zero means the phase is inactive or its deadline has elapsed.
-  uint32_t remainingOpenMs(uint32_t now) const {
-    if (stage != Stage::OPEN || openForMs == 0) return 0;
+  uint32_t remainingRunMs(uint32_t now) const {
+    if (stage != Stage::RUNNING || runForMs == 0) return 0;
     const uint32_t elapsed = now - phaseStartedMs;
-    return elapsed < openForMs ? openForMs - elapsed : 0;
+    return elapsed < runForMs ? runForMs - elapsed : 0;
   }
 
  private:
   bool sosArmed = false;
   uint32_t phaseStartedMs = 0;
-  uint32_t openForMs = 0;
+  uint32_t runForMs = 0;
 };
