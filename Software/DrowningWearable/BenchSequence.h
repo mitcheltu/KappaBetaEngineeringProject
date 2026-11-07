@@ -50,8 +50,10 @@ class BenchSequence {
     }
   }
 
+  // Legacy countdown-indicator name; currently drives the blue LED, not the motor.
   bool vibrationOn() const { return stage == Stage::COUNTDOWN; }
   bool pumpOn() const { return stage == Stage::RUNNING; }
+  bool canAcceptSos() const { return stage == Stage::IDLE && sosArmed; }
 
   uint32_t remainingCountdownMs(uint32_t now) const {
     if (stage != Stage::COUNTDOWN) return 0;

@@ -1,8 +1,14 @@
 #include "FirmwareShared.h"
 
 class ServerCallbacks : public NimBLEServerCallbacks {
-  void onConnect(NimBLEServer* server, NimBLEConnInfo& info) override { historyConnected(server, info); }
-  void onDisconnect(NimBLEServer*, NimBLEConnInfo& info, int) override {
+  void onConnect(NimBLEServer* server, NimBLEConnInfo& info) override {
+    logMessage(LogLevel::INFO, "BLE", "Connected: handle=%u; waiting for history/live handshake.",
+        static_cast<unsigned>(info.getConnHandle()));
+    historyConnected(server, info);
+  }
+  void onDisconnect(NimBLEServer*, NimBLEConnInfo& info, int reason) override {
+    logMessage(LogLevel::INFO, "BLE", "Disconnected: handle=%u reason=%d; restarting advertising.",
+        static_cast<unsigned>(info.getConnHandle()), reason);
     historyDisconnected(info);
     NimBLEDevice::startAdvertising();
   }
@@ -10,13 +16,21 @@ class ServerCallbacks : public NimBLEServerCallbacks {
 class ZeroDepthCallbacks : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic* characteristic, NimBLEConnInfo&) override {
     const auto value = characteristic->getValue();
-    if (value.size() == 1 && static_cast<uint8_t>(value[0]) == 1) zeroRequested.store(true);
+    if (value.size() == 1 && static_cast<uint8_t>(value[0]) == 1) {
+      zeroRequested.store(true);
+      logMessage(LogLevel::INFO, "BLE", "Surface-zero request received.");
+    } else {
+      logMessage(LogLevel::DEBUG, "BLE", "Surface-zero request rejected: expected one byte equal to 1, length=%u.",
+          static_cast<unsigned>(value.size()));
+    }
   }
 };
 ServerCallbacks serverCallbacks;
 ZeroDepthCallbacks zeroCallbacks;
 
 void initializeBle() {
+  logMessage(LogLevel::INFO, "BLE", "Initializing name=%s requestedMTU=247. Wokwi does not simulate Bluetooth.",
+      Config::DEVICE_NAME);
   NimBLEDevice::init(Config::DEVICE_NAME);
   NimBLEDevice::setMTU(247);
   bleServer = NimBLEDevice::createServer();
@@ -36,13 +50,27 @@ void initializeBle() {
   advertising->enableScanResponse(true);
   advertising->addServiceUUID(Config::SERVICE_UUID);
   advertising->setName(Config::DEVICE_NAME);
-  advertising->start();
+  const bool advertised = advertising->start();
+  logMessage(advertised ? LogLevel::INFO : LogLevel::ERROR, "BLE", "Advertising %s; service=%s.",
+      advertised ? "started" : "failed", Config::SERVICE_UUID);
 }
 
 void sendPacket(NimBLECharacteristic* characteristic, const void* packet) {
   characteristic->setValue(static_cast<const uint8_t*>(packet), 20);
   const uint16_t connection = historyConnectionHandle();
-  if (connection != BLE_HS_CONN_HANDLE_NONE && historyLiveEnabled()) characteristic->notify(connection);
+  if (connection != BLE_HS_CONN_HANDLE_NONE && historyLiveEnabled()) {
+    if (!characteristic->notify(connection)) {
+      // The loop owns this counter. Report congestion without logging every packet.
+      static uint32_t failures = 0, lastReport = 0;
+      ++failures;
+      const uint32_t now = millis();
+      if (lastReport == 0 || now - lastReport >= 5000) {
+        logMessage(LogLevel::WARN, "BLE", "Live notify enqueue failed: handle=%u failuresSinceReport=%lu; check subscription/link.",
+            static_cast<unsigned>(connection), static_cast<unsigned long>(failures));
+        failures = 0; lastReport = now;
+      }
+    }
+  }
 }
 
 void publishTelemetry(uint32_t now) {

@@ -14,6 +14,7 @@
 #include <cstring>
 #include <esp_timer.h>
 #include "FirmwareConfig.h"
+#include "Diagnostics.h"
 #include "TelemetryProtocol.h"
 #include "BenchSequence.h"
 #include "CheckedBMI270.h"
@@ -42,8 +43,13 @@ extern size_t windowCount;
 extern uint32_t lastFifoServiceMs;
 extern std::atomic<bool> zeroRequested, stopRequested, startRequested;
 extern std::atomic<uint16_t> batteryMv;
+// Coherent diagnostic sample: high 16 bits = ADC mV, low 16 = battery estimate
+// before validity filtering. UINT32_MAX means no sample yet.
+extern std::atomic<uint32_t> batteryDiagnostic;
+extern std::atomic<bool> sosReady;
 extern std::atomic<uint32_t> actuatorState;
 extern bool controlReady;
+extern TaskHandle_t controlTaskHandle;
 
 bool readRegisters(uint8_t address, uint8_t reg, uint8_t* data, size_t count);
 bool writeRegister(uint8_t address, uint8_t reg, uint8_t value);

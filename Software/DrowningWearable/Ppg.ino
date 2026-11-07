@@ -1,6 +1,33 @@
 #include "FirmwareShared.h"
 
+namespace {
+int ppgSignalCandidate = -1, ppgSignalReported = -1;
+uint32_t ppgSignalChangedMs = 0;
+}
+
+void logPpgSignalQuality(uint32_t red, uint32_t ir) {
+  // Report a stable quality change, not every threshold crossing/sample.
+  // This is an optical signal gate, not proof of skin contact.
+  const int quality = ir >= Config::PPG_MAX_ADC || red >= Config::PPG_MAX_ADC ? 3 :
+                      ir < Config::PPG_MIN_IR ? 1 : red == 0 ? 2 : 0;
+  const uint32_t now = millis();
+  if (quality != ppgSignalCandidate) {
+    ppgSignalCandidate = quality;
+    ppgSignalChangedMs = now;
+  }
+  if (quality == ppgSignalReported || now - ppgSignalChangedMs < 1000) return;
+  ppgSignalReported = quality;
+  const char* reason = quality == 0 ? "signal gate passed; collecting HR/SpO2 window" :
+                       quality == 1 ? "IR below threshold; check contact/illumination" :
+                       quality == 2 ? "red signal is zero" : "optical ADC near saturation";
+  logMessage(LogLevel::INFO, "PPG", "%s (red=%lu IR=%lu)", reason,
+             static_cast<unsigned long>(red), static_cast<unsigned long>(ir));
+}
+
 void resetPpgWindow() {
+  if (windowCount != 0 || rawPpgValid || hrValid || spo2Valid)
+    logMessage(LogLevel::DEBUG, "PPG", "Discarding optical window (%u samples); raw/HR/SpO2 validity cleared", unsigned(windowCount));
+  ppgSignalCandidate = ppgSignalReported = -1;
   windowCount = 0;
   rawPpgValid = hrValid = spo2Valid = false;
   recordPpgGap();
@@ -15,7 +42,11 @@ bool clearPpgFifo() {
 
 void acceptPpgSample(uint32_t red, uint32_t ir, uint64_t sampleTimeUs) {
   redValue = red; irValue = ir; ppgMs = millis(); rawPpgValid = true;
+  logPpgSignalQuality(red, ir);
   if (ir < Config::PPG_MIN_IR || red == 0 || ir >= Config::PPG_MAX_ADC || red >= Config::PPG_MAX_ADC) {
+    if (hrValid || spo2Valid)
+      logMessage(LogLevel::DEBUG, "PPG", "HR/SpO2 invalidated by optical signal gate (red=%lu IR=%lu)",
+                 static_cast<unsigned long>(red), static_cast<unsigned long>(ir));
     windowCount = 0; hrValid = spo2Valid = false;
     recordPpgSample(sampleTimeUs);
     return;
@@ -24,10 +55,15 @@ void acceptPpgSample(uint32_t red, uint32_t ir, uint64_t sampleTimeUs) {
   redWindow[windowCount++] = red;
   if (windowCount < 100) { recordPpgSample(sampleTimeUs); return; }
   int8_t validHr = 0, validSpo2 = 0;
+  const bool previousHrValid = hrValid, previousSpo2Valid = spo2Valid;
   maxim_heart_rate_and_oxygen_saturation(irWindow, 100, redWindow,
       &oxygenSaturation, &validSpo2, &heartRate, &validHr);
   hrValid = validHr != 0 && heartRate > 0 && heartRate < 6553;
   spo2Valid = validSpo2 != 0 && oxygenSaturation > 0 && oxygenSaturation <= 100;
+  if (hrValid != previousHrValid || spo2Valid != previousSpo2Valid)
+    logMessage(LogLevel::DEBUG, "PPG", "Estimate validity HR=%s (%ld BPM), SpO2=%s (%ld%%)",
+               hrValid ? "valid" : "invalid", static_cast<long>(heartRate),
+               spo2Valid ? "valid" : "invalid", static_cast<long>(oxygenSaturation));
   estimateMs = millis();
   // Four seconds at 25 FIFO samples/s, recomputed each second (Example8).
   memmove(irWindow, irWindow + 25, 75 * sizeof(uint32_t));
@@ -41,24 +77,34 @@ void servicePpg() {
   const uint32_t now = millis();
   uint8_t pointers[3]; // write pointer, overflow counter, read pointer
   if (!readRegisters(Config::PPG_ADDRESS, 0x04, pointers, sizeof(pointers))) {
+    logMessage(LogLevel::WARN, "PPG", "MAX30102 FIFO pointer read failed; readings invalid until reinitialization");
     ++sensorErrors; resetPpgWindow(); ppgReady = false; return;
   }
   if ((pointers[1] & 0x1f) != 0 || now - lastFifoServiceMs >= 1000) {
+    logMessage(LogLevel::WARN, "PPG", "FIFO discontinuity: overflow=%u serviceGap=%lums; discarding window",
+               unsigned(pointers[1] & 0x1f), static_cast<unsigned long>(now - lastFifoServiceMs));
     // A discontinuous window must not produce an HR/SpO2 estimate.
     ppgOverflows += (pointers[1] & 0x1f) ? (pointers[1] & 0x1f) : 1;
     resetPpgWindow();
-    if (!clearPpgFifo()) { ++sensorErrors; ppgReady = false; }
+    if (!clearPpgFifo()) {
+      logMessage(LogLevel::WARN, "PPG", "FIFO clear failed; waiting for reinitialization");
+      ++sensorErrors; ppgReady = false;
+    }
     lastFifoServiceMs = now; return;
   }
   lastFifoServiceMs = now;
   const uint8_t pending = (pointers[0] - pointers[2]) & 0x1f;
   if (pending == 0 && now - ppgMs >= 1000) {
+    logMessage(LogLevel::WARN, "PPG", "No new samples for %lums; check MAX30102 connection/configuration",
+               static_cast<unsigned long>(now - ppgMs));
     ++sensorErrors; resetPpgWindow(); ppgReady = false; return;
   }
   const uint64_t batchTimeUs = esp_timer_get_time();
   for (uint8_t i = 0; i < pending; ++i) {
     uint8_t sample[6];
     if (!readRegisters(Config::PPG_ADDRESS, 0x07, sample, sizeof(sample))) {
+      logMessage(LogLevel::WARN, "PPG", "FIFO sample read failed at %u/%u; discarding window and reinitializing",
+                 unsigned(i + 1), unsigned(pending));
       ++sensorErrors; resetPpgWindow(); ppgReady = false; return;
     }
     const uint32_t red = ((uint32_t(sample[0]) << 16) | (uint32_t(sample[1]) << 8) | sample[2]) & 0x3ffff;
@@ -69,8 +115,20 @@ void servicePpg() {
 }
 
 void initializePpg() {
+  static bool failureReported = false;
+  logMessage(LogLevel::DEBUG, "PPG", "Initializing MAX30102 at 0x%02X", unsigned(Config::PPG_ADDRESS));
   resetPpgWindow();
-  if (!ppg.begin(Wire, Config::I2C_HZ, Config::PPG_ADDRESS)) { ++sensorErrors; return; }
+  if (!ppg.begin(Wire, Config::I2C_HZ, Config::PPG_ADDRESS)) {
+    ++sensorErrors;
+    const LogLevel level = failureReported ? LogLevel::DEBUG : LogLevel::WARN;
+    uint8_t partId = 0;
+    if (readRegisters(Config::PPG_ADDRESS, 0xff, &partId, 1))
+      logMessage(level, "PPG", "MAX30102 init failed: part ID=0x%02X (expected 0x15); verify sensor model/configuration", unsigned(partId));
+    else
+      logMessage(level, "PPG", "MAX30102 init failed at 0x%02X: part ID read failed; check power/address/I2C wiring", unsigned(Config::PPG_ADDRESS));
+    failureReported = true;
+    return;
+  }
   // 100 samples/s / 4-sample averaging = 25 Hz expected by Maxim algorithm.
   ppg.setup(60, 4, 2, 100, 411, 4096); // red + IR, 18-bit, no green LED
   ppg.disableFIFORollover();
@@ -84,5 +142,14 @@ void initializePpg() {
              led[0] == 60 && led[1] == 60 && clearPpgFifo();
   lastFifoServiceMs = millis();
   ppgMs = lastFifoServiceMs; // Start the no-new-samples timeout after setup.
-  if (!ppgReady) ++sensorErrors;
+  if (!ppgReady) {
+    ++sensorErrors;
+    logMessage(failureReported ? LogLevel::DEBUG : LogLevel::WARN, "PPG",
+               "MAX30102 config/FIFO check failed: mode=0x%02X spo2=0x%02X fifo=0x%02X LEDs=%u/%u",
+               unsigned(mode), unsigned(spo2), unsigned(fifo), unsigned(led[0]), unsigned(led[1]));
+    failureReported = true;
+  } else {
+    logMessage(LogLevel::INFO, "PPG", "MAX30102 ready: red+IR, 25 FIFO samples/s; HR/SpO2 need 100 accepted samples");
+    failureReported = false;
+  }
 }

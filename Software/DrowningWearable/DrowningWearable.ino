@@ -1,5 +1,5 @@
 // Rev F ESP32-S3 bench firmware. Pins: FirmwareConfig.h. Wiring: ../../Electrical/README.md.
-// SOS: vibrate 10s, then pump until Cancel. Serial commands: z, off, sos.
+// SOS: blue LED 10s, then pump until Cancel. Serial: help, status, z, off, sos, log debug.
 #include "FirmwareShared.h"
 
 CheckedBMI270 imu;
@@ -21,29 +21,46 @@ size_t windowCount = 0;
 uint32_t lastFifoServiceMs = 0;
 std::atomic<bool> zeroRequested{false}, stopRequested{false}, startRequested{false};
 std::atomic<uint16_t> batteryMv{UINT16_MAX};
+std::atomic<uint32_t> batteryDiagnostic{UINT32_MAX};
+std::atomic<bool> sosReady{false};
 // Low byte: system flags 2..6; bits 8..23: countdown ms. One coherent snapshot.
 std::atomic<uint32_t> actuatorState{0};
 bool controlReady = false;
+TaskHandle_t controlTaskHandle = nullptr;
 
 void setup() {
   // Active-high low-side gates, with Rev F external 100k pulldowns.
   digitalWrite(Config::PUMP_GATE, LOW); pinMode(Config::PUMP_GATE, OUTPUT);
   digitalWrite(Config::VIBRATION_GATE, LOW); pinMode(Config::VIBRATION_GATE, OUTPUT);
+  rgbLedWrite(Config::COUNTDOWN_LED_PIN, 0, 0, 0);
   pinMode(Config::CANCEL_BUTTON, INPUT_PULLUP); pinMode(Config::SOS_BUTTON, INPUT_PULLUP);
   pinMode(Config::IMU_INT1, INPUT); pinMode(Config::PPG_INT, INPUT); // Wired, but polled.
   analogReadResolution(12); analogSetPinAttenuation(Config::BATTERY_ADC, ADC_11db);
   Serial.begin(115200);
-  controlReady = xTaskCreate(controlTask, "bench-test", 3072, nullptr, 3, nullptr) == pdPASS;
-  Serial.println("Rev F manual test: SOS vibrates 10s then runs pump until Cancel. No drowning logic.");
-  if (!controlReady) Serial.println("Control task failed; vibration and pump remain off.");
+  const bool loggingReady = initializeLogging();
+  controlReady = xTaskCreate(controlTask, "bench-test", 4096, nullptr, 3, &controlTaskHandle) == pdPASS;
+  // The only direct print is a startup fallback if no writer could be created.
+  if (!loggingReady) Serial.println("ERROR: diagnostic queue/task unavailable; logging disabled.");
+  logMessage(LogLevel::INFO, "BOOT", "Rev F manual test: SOS -> blue LED 10s -> pump until Cancel/off; vibration disabled; no drowning logic");
+  logMessage(controlReady ? LogLevel::INFO : LogLevel::ERROR, "CONTROL",
+      "task=%s enabled=%d; active-low SOS=GPIO%d Cancel=GPIO%d; blue LED=GPIO%d pump=GPIO%d; vibration held off",
+      controlReady ? "ready" : "FAILED (outputs off)", Config::ENABLE_ACTUATOR_TESTS,
+      Config::SOS_BUTTON, Config::CANCEL_BUTTON, Config::COUNTDOWN_LED_PIN, Config::PUMP_GATE);
+  logMessage(LogLevel::INFO, "BATTERY", "GPIO%d ADC x %.2f; valid=%u..%u mV; SOS requires >=%u mV; high readings also block",
+      Config::BATTERY_ADC, Config::BATTERY_DIVIDER_RATIO, Config::BATTERY_VALID_MIN_MV,
+      Config::BATTERY_VALID_MAX_MV, Config::ACTUATOR_MIN_BATTERY_MV);
   initializeHistory();
   busReady = Wire.begin(Config::I2C_SDA, Config::I2C_SCL, Config::I2C_HZ);
   Wire.setTimeOut(20);
   if (busReady) {
     initializeImu(); initializeDepth(); initializePpg(); // Optical sampling last.
   } else ++sensorErrors;
-  Serial.printf("I2C SDA=8 SCL=9: BMI270(68)=%d MS5837(76)=%d MAX30102(57)=%d\n", imuReady, depthReady, ppgReady);
+  logMessage(busReady ? LogLevel::INFO : LogLevel::ERROR, "I2C",
+      "SDA=%d SCL=%d speed=%lu Hz bus=%d; BMI270(0x68)=%d MS5837(0x76)=%d MAX30102(0x57)=%d",
+      Config::I2C_SDA, Config::I2C_SCL, static_cast<unsigned long>(Config::I2C_HZ),
+      busReady, imuReady, depthReady, ppgReady);
   initializeBle();
+  logMessage(LogLevel::INFO, "BOOT", "setup complete; commands: help, status, sos, off, z, log info/debug/warn/error/off");
 }
 
 void loop() {
@@ -61,6 +78,7 @@ void loop() {
       busReady = Wire.begin(Config::I2C_SDA, Config::I2C_SCL, Config::I2C_HZ);
       Wire.setTimeOut(20);
       if (!busReady) ++sensorErrors;
+      logMessage(busReady ? LogLevel::INFO : LogLevel::WARN, "I2C", "bus restart %s", busReady ? "ready" : "failed");
     }
     // BMI reinitialization blocks: discard any affected optical window.
     if (busReady && !imuReady) {
@@ -73,5 +91,6 @@ void loop() {
   now = millis();
   if (now - lastTelemetry >= Config::TELEMETRY_PERIOD_MS) { lastTelemetry = now; publishTelemetry(now); }
   serviceHistory();
+  serviceDiagnostics(millis());
   delay(1);
 }

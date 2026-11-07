@@ -8,7 +8,9 @@ namespace Config {
 constexpr int I2C_SDA = 8, I2C_SCL = 9; // Shared, pulled up to 3.3 V.
 constexpr int IMU_INT1 = 4, PPG_INT = 15; // Inputs; currently polled over I2C.
 constexpr int CANCEL_BUTTON = 5, SOS_BUTTON = 6; // NO reeds to GND, active LOW.
-constexpr int VIBRATION_GATE = 7; // Rev F MOTOR_EN -> R1 -> Q1; active HIGH.
+constexpr int VIBRATION_GATE = 7; // Rev F MOTOR_EN -> R1 -> Q1; held LOW for now.
+constexpr int COUNTDOWN_LED_PIN = 48; // Onboard RGB: DevKitC-1 v1.0/Wokwi; v1.1 uses 38.
+constexpr uint8_t COUNTDOWN_LED_BLUE = 64; // RGB blue brightness (0..255).
 constexpr int PUMP_GATE = 16; // Former SOL_EN -> R3 -> Q2; active HIGH.
 constexpr int BATTERY_ADC = 1; // ADC1, midpoint of R5/R6 (100k/100k).
 constexpr uint8_t IMU_ADDRESS = 0x68, PPG_ADDRESS = 0x57, DEPTH_ADDRESS = 0x76;
@@ -16,13 +18,19 @@ constexpr uint32_t I2C_HZ = 400000;
 constexpr float FLUID_DENSITY_KG_M3 = 997.0f; // Fresh water; seawater: 1029.
 constexpr float BATTERY_DIVIDER_RATIO = 2.0f; // R5 = R6 = 100 kohm.
 
-// Requested manual bench test: SOS -> vibrate 10s -> pump runs until Cancel.
-// Cancel stops both. This enables GPIO commands, not a hardware certification.
+// Temporary manual bench test: SOS -> blue LED 10s -> pump runs until Cancel.
+// Cancel stops both; the vibration motor stays off.
+// This enables GPIO commands, not a hardware certification.
 // CrocSee B09XH1GYYQ: 12 V recommended, <=350 mA listed load current.
 // Startup/stall current, Q2 drive and D3/boost suitability still need validation.
 constexpr bool ENABLE_ACTUATOR_TESTS = true;
 constexpr uint16_t ACTUATOR_MIN_BATTERY_MV = 3400; // Existing battery interlock.
+constexpr uint16_t BATTERY_VALID_MIN_MV = 2500, BATTERY_VALID_MAX_MV = 4350;
 // Steady HIGH/LOW switching, no PWM or pump-specific library. No flow feedback.
+
+// Serial diagnostics: 0=ERROR, 1=WARN, 2=INFO, 3=DEBUG. Runtime: log info/debug/off.
+constexpr uint8_t DEFAULT_LOG_LEVEL = 2;
+constexpr uint32_t LOG_STATUS_PERIOD_MS = 2000;
 
 // Example optical gate, not a validated wrist/contact classifier.
 constexpr uint32_t PPG_MIN_IR = 50000, PPG_MAX_ADC = 262000;
