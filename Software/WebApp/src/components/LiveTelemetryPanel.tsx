@@ -26,7 +26,7 @@ export function LiveTelemetryPanel() {
   const p = ppg && !ppg.stale ? ppg.data : null;
   const s = system && !system.stale ? system.data : null;
   const actuatorStatus = !s ? 'Waiting for device status'
-    : s.countdownActive ? `Countdown ${Math.ceil(s.remainingMs / 1000)} s / ${s.vibrationOn ? 'vibrating' : 'vibration off'}`
+    : s.countdownActive ? `Countdown ${Math.ceil(s.remainingMs / 1000)} s / ${s.vibrationOn ? 'blue LED on' : 'blue LED off'}`
       : s.pumpOn ? 'Pump running until Cancel'
         : s.pumpEnabled ? 'Idle · pump stopped' : 'Pump disabled';
   const hasStale = Object.values(snapshot.telemetry).some(reading => reading?.stale);
@@ -69,8 +69,8 @@ export function LiveTelemetryPanel() {
     </View>
     {!!snapshot.message && <Text accessibilityLiveRegion="polite" style={styles.message}>{snapshot.message}</Text>}
     {s && <View style={{ gap: 6 }}>
-      <Text style={styles.diagnostics}>Vibration {s.vibrationOn ? 'ON' : 'OFF'} · PPG overflows {s.ppgOverflowCount} · Sensor errors {s.sensorErrors} · Cancel {s.cancelPressed ? 'pressed' : 'released'} · SOS {s.sosPressed ? 'pressed' : 'released'}</Text>
-      <Text style={styles.footnote}>Pump and vibration status show commanded outputs. Water flow is not measured. Use the physical Cancel button to abort the test or stop the pump.</Text>
+      <Text style={styles.diagnostics}>Blue LED {s.vibrationOn ? 'ON' : 'OFF'} · PPG overflows {s.ppgOverflowCount} · Sensor errors {s.sensorErrors} · Cancel {s.cancelPressed ? 'pressed' : 'released'} · SOS {s.sosPressed ? 'pressed' : 'released'}</Text>
+      <Text style={styles.footnote}>Pump and blue LED status show commanded outputs. Water flow is not measured. Use the physical Cancel button to abort the test or stop the pump.</Text>
     </View>}
     <Text style={styles.footnote}>Use Chrome on Windows, macOS, or Android over HTTPS or localhost. No drowning detection or remote pump activation.</Text>
   </View>;

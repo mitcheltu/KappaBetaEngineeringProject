@@ -1,14 +1,14 @@
 {
   "expo": {
     "name": "Kappa Beta",
-    "slug": "kappa-beta-wearable-demo",
+    "slug": "kappa-beta-wearable",
     "version": "1.0.0",
     "orientation": "default",
     "userInterfaceStyle": "light",
     "web": {
       "bundler": "metro",
-      "name": "Kappa Beta · Wearable demo",
-      "description": "A calm, coastal interface for exploring a simulated wearable connection."
+      "name": "Kappa Beta · Wearable",
+      "description": "Connect your ESP32 wearable, set a surface baseline, and view and export sensor readings."
     }
   }
 }

@@ -105,7 +105,9 @@ try {
     const errors = []; page.on('pageerror', error => errors.push(error.message));
     const installFakeBluetooth = () => {
       const { HISTORY_UUIDS, crc32 } = HistoryTestApi, suffix = '-7e57-4d8e-b6f4-889c1d4e8270';
-      const chars = {}, commands = []; let target = 6, live = false, token = 0, cursor = 0;
+      const chars = {}, commands = [], zeroCommands = [];
+      const connections = { requests: 0, connects: 0, disconnects: 0 };
+      let target = 6, live = false, token = 0, cursor = 0;
       const make = value => { const c = new EventTarget(); c.value = value; c.readValue = async () => c.value; c.startNotifications = async () => c; c.writeValueWithResponse = async () => {}; c.notify = value => { c.value = value; c.dispatchEvent(new Event('characteristicvaluechanged')); }; return c; };
       const status = (type, first, end, detail = 0, count = 0) => {
         const v = new DataView(new ArrayBuffer(20)); v.setUint8(0, type); v.setUint8(1, 1); v.setUint16(2, token, true); v.setUint32(4, first, true); v.setUint32(8, end, true); v.setUint32(12, detail, true); v.setUint16(16, count, true); v.setUint16(18, 3, true); chars[HISTORY_UUIDS.status].notify(v);
@@ -127,32 +129,82 @@ try {
       }
       const id = new DataView(new ArrayBuffer(20)); id.setUint8(0, 1); id.setUint8(1, 32); id.setUint8(2, 3); id.setUint8(4, 1); id.setUint8(10, 2);
       chars[HISTORY_UUIDS.identity] = make(id); chars[HISTORY_UUIDS.status] = make(new DataView(new ArrayBuffer(20))); chars[HISTORY_UUIDS.data] = make(new DataView(new ArrayBuffer(20))); chars[HISTORY_UUIDS.command] = make(); chars[`e81b6220${suffix}`] = make();
+      chars[`e81b6220${suffix}`].writeValueWithResponse = async bytes => {
+        zeroCommands.push([...bytes]);
+        if (bytes.length !== 1 || bytes[0] !== 1) throw new Error('Invalid surface-zero command');
+        // Simulate the later sensor result separately from the write acknowledgement.
+        setTimeout(() => {
+          const c = chars[`e81b6210${suffix}`], value = new DataView(c.value.buffer.slice(0));
+          value.setUint16(2, value.getUint16(2, true) + 1, true);
+          value.setUint32(4, value.getUint32(4, true) + 200, true);
+          value.setFloat32(12, 0, true); c.notify(value);
+        }, 25);
+      };
       chars[HISTORY_UUIDS.command].writeValueWithResponse = async bytes => {
         const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), op = bytes[0]; token = v.getUint16(2, true); cursor = v.getUint32(4, true); commands.push({ op, cursor, token });
         if (op === 1 || op === 4) { if (op === 4 && target < 8) target = 8; status(1, 2, target, 131072); next(); }
         if (op === 2) next();
         if (op === 3) { live = true; status(5, cursor, target, 131072); }
       };
-      const device = new EventTarget(); device.name = 'KappaBeta-RevF'; device.gatt = { connected: false, async connect() { this.connected = true; live = false; return this; }, disconnect() { const was = this.connected; this.connected = false; if (was) device.dispatchEvent(new Event('gattserverdisconnected')); }, async getPrimaryService() { return { getCharacteristic: async uuid => chars[uuid] }; } };
-      Object.defineProperty(navigator, 'bluetooth', { configurable: true, value: { requestDevice: async () => device } });
+      const device = new EventTarget(); device.name = 'KappaBeta-RevF'; device.gatt = { connected: false, async connect() { connections.connects++; this.connected = true; live = false; return this; }, disconnect() { const was = this.connected; this.connected = false; if (was) { connections.disconnects++; device.dispatchEvent(new Event('gattserverdisconnected')); } }, async getPrimaryService() { return { getCharacteristic: async uuid => chars[uuid] }; } };
+      // Keep readings fresh while traversing tabs and exporting; stale behavior is
+      // covered separately by the live connection service tests.
+      setInterval(() => {
+        if (!device.gatt.connected || !live) return;
+        for (let index = 0; index < 4; index++) {
+          const c = chars[`e81b621${index}${suffix}`], value = new DataView(c.value.buffer.slice(0));
+          value.setUint16(2, (value.getUint16(2, true) + 1) & 0xffff, true);
+          value.setUint32(4, value.getUint32(4, true) + 200, true); c.notify(value);
+        }
+      }, 200);
+      Object.defineProperty(navigator, 'bluetooth', { configurable: true, value: { requestDevice: async () => { connections.requests++; return device; } } });
       Object.defineProperty(window, 'showSaveFilePicker', { configurable: true, value: undefined });
       globalThis.historyCommands = commands;
+      globalThis.zeroCommands = zeroCommands;
+      globalThis.fakeConnections = connections;
     };
     await page.addInitScript({ content: `${api}\n(${installFakeBluetooth.toString()})();` });
     await page.goto(url, { waitUntil: 'networkidle' });
-    await page.getByRole('button', { name: 'Connect wearable', exact: true }).click();
-    try { await page.getByText('CONNECTED / LIVE', { exact: true }).waitFor(); }
-    catch (error) { console.log('Connection failure:', await page.locator('#live-telemetry').innerText(), errors, await page.evaluate(() => globalThis.historyCommands)); throw error; }
-    await page.getByText('72 bpm', { exact: true }).waitFor();
-    await page.getByText(/6 records · 2 unavailable/).waitFor();
+    const connect = page.getByRole('tabpanel', { name: 'Connect', exact: true });
+    const settings = page.getByRole('tabpanel', { name: 'Settings', exact: true });
+    const livePanel = page.getByRole('tabpanel', { name: 'Live', exact: true });
+    const badge = page.getByRole('button', { name: 'Device status: Connected. Open connection tab', exact: true });
+    const selectTab = async tab => {
+      await page.getByRole('tab', { name: tab, exact: true }).click();
+      assert.equal(await page.getByRole('tab', { name: tab, exact: true }).getAttribute('aria-selected'), 'true');
+      assert.equal(await page.getByRole('tabpanel').count(), 1, `${name}: inactive panels exposed`);
+      await badge.waitFor();
+    };
+    await connect.getByRole('button', { name: 'Connect device ↗', exact: true }).click();
+    try { await badge.waitFor(); }
+    catch (error) { console.log('Connection failure:', await connect.innerText(), errors, await page.evaluate(() => globalThis.historyCommands)); throw error; }
+    await connect.locator('.baseline-value strong').filter({ hasText: /^1\.25$/ }).waitFor();
+    await connect.getByRole('button', { name: 'Zero depth at surface', exact: true }).click();
+    await connect.locator('.baseline-value strong').filter({ hasText: /^0\.00$/ }).waitFor();
+    assert.deepEqual(await page.evaluate(() => globalThis.zeroCommands), [[1]], 'surface-zero command was not exactly one byte');
+    await selectTab('Settings');
+    await settings.getByText('Saved here. Not applied to the wearable.', { exact: true }).waitFor();
+    await selectTab('Live');
+    await livePanel.getByRole('button', { name: 'Vitals', exact: true }).click();
+    await livePanel.locator('.vitals-view .metric').filter({ has: page.getByRole('heading', { name: 'Heart rate', exact: true }) }).getByText('72', { exact: true }).waitFor();
+    await livePanel.getByRole('button', { name: 'History', exact: true }).click();
+    const historyPanel = livePanel.getByRole('region', { name: 'Saved sensor history', exact: true });
+    await historyPanel.locator('.history-view__stat strong').filter({ hasText: /^6$/ }).waitFor();
+    await historyPanel.getByText('2 missing · gaps included in CSV', { exact: true }).waitFor();
+    assert.deepEqual(await page.evaluate(() => globalThis.fakeConnections), { requests: 1, connects: 1, disconnects: 0 }, 'switching tabs recreated the Bluetooth connection');
+    assert.equal(await page.evaluate(() => historyCommands.filter(c => c.op === 1).length), 1, 'switching tabs restarted initial history');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${name} overflow`);
-    await page.locator('#live-telemetry').screenshot({ path: resolve(output, `${name}-history.png`) });
-    const download = page.waitForEvent('download'); await page.getByRole('button', { name: 'Export CSV', exact: true }).click();
+    await page.locator('.device-app').screenshot({ path: resolve(output, `${name}-history.png`) });
+    const download = page.waitForEvent('download'); await historyPanel.getByRole('button', { name: 'Export CSV ↗', exact: true }).click();
     assert.match((await download).suggestedFilename(), /^kappa-beta-/);
-    await page.getByRole('button', { name: 'Disconnect wearable', exact: true }).click();
-    await page.getByRole('button', { name: 'Connect wearable', exact: true }).click();
-    await page.getByText('CONNECTED / LIVE', { exact: true }).waitFor();
+    await selectTab('Connect');
+    await connect.getByRole('button', { name: 'Disconnect', exact: true }).click();
+    await page.getByRole('button', { name: 'Device status: Not connected. Open connection tab', exact: true }).waitFor();
+    await connect.locator('.baseline-value strong').filter({ hasText: /^—$/ }).waitFor();
+    await connect.getByRole('button', { name: 'Connect device ↗', exact: true }).click();
+    await badge.waitFor();
     assert.equal(await page.evaluate(() => historyCommands.filter(c => c.op === 1).at(-1).cursor), 8, 'reconnect did not resume checkpoint');
-    assert.deepEqual(errors, []); console.log(`${name} UI: history-first, background tail, saved session, CSV, reconnect, no overflow/errors`); await page.close();
+    assert.deepEqual(await page.evaluate(() => globalThis.fakeConnections), { requests: 2, connects: 2, disconnects: 1 }, 'unexpected reconnect lifecycle');
+    assert.deepEqual(errors, []); console.log(`${name} UI: history-first, persistent connection across tabs, surface zero, background tail, saved session, CSV, reconnect, no overflow/errors`); await page.close();
   }
 } finally { await browser.close(); await new Promise(done => server.close(done)); }
