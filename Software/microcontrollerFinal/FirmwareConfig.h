@@ -5,6 +5,9 @@
 // Rev F wiring, with the user-requested pump replacing the solenoid on GPIO16.
 // Electrical/README.md lists the pin and power assumptions still to validate.
 namespace Config {
+// Selected depth-sensor hardware: GY-MS5837-30BA breakout, 3.3 V I2C logic.
+// The Rev F project wiring and ESP32-S3 configuration use GPIO8/GPIO9; do not
+// substitute the older Rev B GPIO3/GPIO4 mapping here.
 constexpr int I2C_SDA = 8, I2C_SCL = 9; // Shared, pulled up to 3.3 V.
 constexpr int IMU_INT1 = 4, PPG_INT = 15; // Inputs; currently polled over I2C.
 constexpr int CANCEL_BUTTON = 5, SOS_BUTTON = 6; // NO reeds to GND, active LOW.
@@ -15,7 +18,12 @@ constexpr int PUMP_GATE = 16; // Former SOL_EN -> R3 -> Q2; active HIGH.
 constexpr int BATTERY_ADC = 1; // ADC1, midpoint of R5/R6 (100k/100k).
 constexpr uint8_t IMU_ADDRESS = 0x68, PPG_ADDRESS = 0x57, DEPTH_ADDRESS = 0x76;
 constexpr uint32_t I2C_HZ = 400000;
-constexpr float FLUID_DENSITY_KG_M3 = 997.0f; // Fresh water; seawater: 1029.
+// The official BlueRobotics MS5837 1.1.1 library is pinned by libraries.txt.
+// Its read() path is blocking and performs two conversions, so this remains a
+// provisional 5 Hz-oriented schedule; the implementation must not claim 20 Hz.
+constexpr uint32_t DEPTH_SAMPLE_PERIOD_MS = 200; // PROVISIONAL/TBD; library-limited.
+constexpr float DEPTH_WATER_DENSITY_KG_M3 = 1000.0f; // PROVISIONAL/TBD freshwater.
+constexpr float FLUID_DENSITY_KG_M3 = DEPTH_WATER_DENSITY_KG_M3; // Legacy alias.
 constexpr float BATTERY_DIVIDER_RATIO = 2.0f; // R5 = R6 = 100 kohm.
 
 // Temporary manual bench test: SOS -> blue LED 10s -> pump runs until Cancel.
@@ -39,7 +47,7 @@ constexpr uint32_t HISTORY_BYTES = 4 * 1024 * 1024;
 constexpr uint32_t ML_WORKSPACE_BYTES = 1024 * 1024; // Two future model workspaces.
 constexpr uint32_t PSRAM_HEADROOM_BYTES = 1024 * 1024;
 // Final IMU model input: 20 Hz * 3 seconds = 60 samples.
-constexpr uint32_t IMU_PERIOD_MS = 50, DEPTH_PERIOD_MS = 200;
+constexpr uint32_t IMU_PERIOD_MS = 50, DEPTH_PERIOD_MS = DEPTH_SAMPLE_PERIOD_MS;
 constexpr char DEVICE_NAME[] = "KappaBeta-RevF";
 constexpr char SERVICE_UUID[] = "e81b6200-7e57-4d8e-b6f4-889c1d4e8270";
 constexpr char DEPTH_UUID[] = "e81b6210-7e57-4d8e-b6f4-889c1d4e8270";

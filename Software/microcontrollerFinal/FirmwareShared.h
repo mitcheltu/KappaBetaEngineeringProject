@@ -4,10 +4,6 @@
 #include <Wire.h>
 #include <MAX30105.h> // SparkFun library also supports MAX30102.
 #include <spo2_algorithm.h>
-#include <MS5837.h> // BlueRobotics MS5837 Library 1.1.1 (Library Manager).
-#ifndef MS5837_H_BLUEROBOTICS
-#error "Select BlueRobotics MS5837 Library by BlueRobotics; another MS5837 library was found."
-#endif
 #include <NimBLEDevice.h>
 #include <atomic>
 #include <cmath>
@@ -20,6 +16,7 @@
 #include "ImuRiskEvaluator.h"
 #include "ImuSensor.h"
 #include "ImuWindow.h"
+#include "DepthSensor.h"
 #include "HistoryProtocol.h"
 
 #if !defined(CONFIG_IDF_TARGET_ESP32S3)
@@ -30,16 +27,15 @@ extern ImuSensor imu;
 extern ImuRisk::Evaluator imuRiskEvaluator;
 extern ImuRisk::Window imuWindow;
 extern MAX30105 ppg;
-extern MS5837 pressureSensor;
+extern DepthSensor depthSensor;
 extern NimBLEServer* bleServer;
 extern NimBLECharacteristic *depthCharacteristic, *imuCharacteristic;
 extern NimBLECharacteristic *ppgCharacteristic, *systemCharacteristic;
 extern bool busReady, imuReady, ppgReady, depthReady;
-extern bool pressureValid, imuValid, rawPpgValid;
+extern bool imuValid, rawPpgValid;
 extern bool hrValid, spo2Valid;
-extern float pressurePa, temperatureC, surfacePa;
 extern float imuAxes[6];
-extern uint32_t pressureMs, imuMs, ppgMs, estimateMs;
+extern uint32_t imuMs, ppgMs, estimateMs;
 extern uint32_t redValue, irValue, ppgOverflows, sensorErrors;
 extern int32_t heartRate, oxygenSaturation;
 extern uint32_t irWindow[100], redWindow[100];
@@ -63,7 +59,6 @@ void acceptPpgSample(uint32_t red, uint32_t ir, uint64_t sampleTimeUs);
 void servicePpg();
 void initializePpg();
 void initializeImu();
-bool depthSensorPresent();
 void initializeDepth();
 void sampleImu();
 bool calibrateImuGyro();

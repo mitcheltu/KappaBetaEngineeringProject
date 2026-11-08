@@ -8,16 +8,16 @@ ImuSensor imu;
 ImuRisk::Evaluator imuRiskEvaluator;
 ImuRisk::Window imuWindow;
 MAX30105 ppg;
-MS5837 pressureSensor;
+DepthSensor depthSensor(DepthSensorConfig{
+    Config::DEPTH_SAMPLE_PERIOD_MS, Config::DEPTH_WATER_DENSITY_KG_M3});
 NimBLEServer* bleServer = nullptr;
 NimBLECharacteristic *depthCharacteristic = nullptr, *imuCharacteristic = nullptr;
 NimBLECharacteristic *ppgCharacteristic = nullptr, *systemCharacteristic = nullptr;
 bool busReady = false, imuReady = false, ppgReady = false, depthReady = false;
-bool pressureValid = false, imuValid = false, rawPpgValid = false;
+bool imuValid = false, rawPpgValid = false;
 bool hrValid = false, spo2Valid = false;
-float pressurePa = NAN, temperatureC = NAN, surfacePa = NAN;
 float imuAxes[6] = {};
-uint32_t pressureMs = 0, imuMs = 0, ppgMs = 0, estimateMs = 0;
+uint32_t imuMs = 0, ppgMs = 0, estimateMs = 0;
 uint32_t redValue = 0, irValue = 0, ppgOverflows = 0, sensorErrors = 0;
 int32_t heartRate = 0, oxygenSaturation = 0;
 uint32_t irWindow[100] = {}, redWindow[100] = {};
@@ -68,12 +68,12 @@ void setup() {
 }
 
 void loop() {
-  static uint32_t lastImu = 0, lastDepth = 0, lastTelemetry = 0, lastRetry = 0;
+  static uint32_t lastImu = 0, lastTelemetry = 0, lastRetry = 0;
   serviceSerial(); servicePpg(); serviceDepthZero(); serviceHistory();
   uint32_t now = millis();
   if (now - lastImu >= Config::IMU_PERIOD_MS) { lastImu = now; sampleImu(); }
-  if (now - lastDepth >= Config::DEPTH_PERIOD_MS) {
-    lastDepth = now; servicePpg(); sampleDepth(); servicePpg();
+  if (depthSensor.due(static_cast<uint64_t>(now) * 1000ULL)) {
+    servicePpg(); sampleDepth(); servicePpg();
   }
   now = millis();
   if (now - lastRetry >= 5000) {

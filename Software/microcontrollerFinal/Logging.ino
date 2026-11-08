@@ -109,6 +109,7 @@ void setLogLevel(int level) {
 
 void logStatus() {
   const uint32_t now = millis();
+  const DepthReading depth = depthSensor.snapshot(static_cast<uint64_t>(now) * 1000ULL);
   const uint32_t battery = batteryDiagnostic.load();
   const uint32_t controls = actuatorState.load();
   if (battery == UINT32_MAX) logReply("BATTERY", "NOT_SAMPLED; SOS blocked until a valid battery sample");
@@ -123,7 +124,7 @@ void logStatus() {
       !!(controls & 32), !!(controls & 4), static_cast<unsigned long>(controls >> 8));
   logReply("SENSORS", "I2C=%d BMI270 ready/fresh=%d/%d MS5837=%d/%d MAX30102=%d/%d errors=%lu FIFO_gaps=%lu",
       busReady, imuReady, imuValid && now - imuMs < 300,
-      depthReady, pressureValid && now - pressureMs < 1000,
+      depthReady, depth.sensorValid,
       ppgReady, rawPpgValid && now - ppgMs < 300,
       static_cast<unsigned long>(sensorErrors), static_cast<unsigned long>(ppgOverflows));
   logReply("SYSTEM", "heap=%lu min_heap=%lu PSRAM_free=%lu BLE=%s live=%d history_flags=0x%04x log_dropped=%lu truncated=%lu",
@@ -136,8 +137,9 @@ void logStatus() {
       static_cast<unsigned long>(controlTaskHandle ? uxTaskGetStackHighWaterMark(controlTaskHandle) : 0),
       static_cast<unsigned long>(Diagnostics::writerHandle ? uxTaskGetStackHighWaterMark(Diagnostics::writerHandle) : 0));
   // Values stay in the main-loop owner; the writer task never reads sensor state.
-  logMessage(LogLevel::DEBUG, "VALUES", "pressure=%.1f Pa temp=%.2f C zero=%.1f Pa; IR=%lu red=%lu HR=%ld(valid=%d) SpO2=%ld(valid=%d)",
-      pressurePa, temperatureC, surfacePa, static_cast<unsigned long>(irValue),
+  logMessage(LogLevel::DEBUG, "VALUES", "pressure=%.1f Pa temp=%.2f C depth=%.3f m rate=%.3f m/s zero=%.1f Pa quality=0x%04x; IR=%lu red=%lu HR=%ld(valid=%d) SpO2=%ld(valid=%d)",
+      depth.pressurePa, depth.temperatureC, depth.filteredDepthM, depth.depthRateMps,
+      depth.surfacePressurePa, unsigned(depth.qualityFlags), static_cast<unsigned long>(irValue),
       static_cast<unsigned long>(redValue), static_cast<long>(heartRate), hrValid,
       static_cast<long>(oxygenSaturation), spo2Valid);
   logMessage(LogLevel::DEBUG, "IMU", "last sample age=%lu ms; axes=[%.3f %.3f %.3f %.3f %.3f %.3f] valid=%d",

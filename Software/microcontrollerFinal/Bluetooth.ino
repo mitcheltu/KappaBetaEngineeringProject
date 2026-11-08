@@ -76,14 +76,15 @@ void sendPacket(NimBLECharacteristic* characteristic, const void* packet) {
 void publishTelemetry(uint32_t now) {
   static uint16_t sequence = 0;
   const PacketHeader header{1, 0, sequence++, now};
-  const bool freshPressure = pressureValid && now - pressureMs < 1000;
-  const bool calibrated = freshPressure && std::isfinite(surfacePa);
+  const DepthReading depthReading = depthSensor.snapshot(static_cast<uint64_t>(now) * 1000ULL);
+  const bool freshPressure = depthReading.sensorValid;
+  const bool calibrated = freshPressure && depthReading.depthValid;
   DepthPacket depth{};
   depth.header = header;
   depth.header.flags = (freshPressure ? 1 : 0) | (calibrated ? 2 : 0);
-  depth.pressurePa = freshPressure ? pressurePa : NAN;
-  depth.temperatureC = freshPressure ? temperatureC : NAN;
-  depth.depthM = calibrated ? (pressurePa - surfacePa) / (Config::FLUID_DENSITY_KG_M3 * 9.80665f) : NAN;
+  depth.pressurePa = freshPressure ? depthReading.pressurePa : NAN;
+  depth.temperatureC = freshPressure ? depthReading.temperatureC : NAN;
+  depth.depthM = calibrated ? depthReading.filteredDepthM : NAN;
   ImuPacket motion{};
   motion.header = header;
   if (imuValid && now - imuMs < 300) {

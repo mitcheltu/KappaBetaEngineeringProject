@@ -240,13 +240,16 @@ void recordHistory(uint8_t kind, uint8_t flags, uint64_t timeUs, const void* pay
 }
 
 void recordDepthSample() {
-  const bool zeroed = pressureValid && std::isfinite(surfacePa);
+  const DepthReading& reading = depthSensor.reading();
+  const bool pressurePresent = reading.sensorValid;
+  const bool zeroed = pressurePresent && reading.depthValid;
   const float payload[4] = {
-    pressureValid ? pressurePa : NAN,
-    zeroed ? (pressurePa - surfacePa) / (Config::FLUID_DENSITY_KG_M3 * 9.80665f) : NAN,
-    pressureValid ? temperatureC : NAN, surfacePa
+    pressurePresent ? reading.pressurePa : NAN,
+    zeroed ? reading.filteredDepthM : NAN,
+    pressurePresent ? reading.temperatureC : NAN, reading.surfacePressurePa
   };
-  recordHistory(1, (pressureValid ? 1 : 0) | (zeroed ? 2 : 0), esp_timer_get_time(), payload, sizeof(payload));
+  const uint64_t timestampUs = reading.timestampUs != 0 ? reading.timestampUs : esp_timer_get_time();
+  recordHistory(1, (pressurePresent ? 1 : 0) | (zeroed ? 2 : 0), timestampUs, payload, sizeof(payload));
 }
 
 void recordImuSample() {
@@ -269,7 +272,9 @@ void recordPpgSample(uint64_t sampleTimeUs) {
 }
 
 void recordSurfaceZero() {
-  recordHistory(5, std::isfinite(surfacePa) ? 1 : 0, esp_timer_get_time(), &surfacePa, sizeof(surfacePa));
+  const float baseline = depthSensor.reading().surfacePressurePa;
+  recordHistory(5, std::isfinite(baseline) && depthSensor.diveActive() ? 1 : 0,
+                esp_timer_get_time(), &baseline, sizeof(baseline));
 }
 
 void recordPpgGap() {
