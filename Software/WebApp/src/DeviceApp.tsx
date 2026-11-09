@@ -1,10 +1,10 @@
 import { Image } from 'react-native';
-import { useEffect, useId, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react';
 import { createLiveConnectionService, type LiveStatus } from './services/liveConnection';
 import { createIndexedDbHistoryStore } from './services/historyStore';
 import { HistoryView } from './components/HistoryView.web';
 import { useTheme } from './useTheme';
-import { defaultPreferences, parsePreferences, preferenceKey, type Preferences } from './services/preferences';
+import { defaultPreferences, displayWeight, weightToKg, parsePreferences, preferenceKey, type Preferences } from './services/preferences';
 import './device-app.css';
 
 const oceanImage = require('../assets/ocean-background.png');
@@ -26,7 +26,7 @@ const sensors: Sensor[] = ['Depth', 'Vitals', 'Motion', 'Device', 'History'];
 const helpContent = {
   heartRate: { title: 'Resting heart rate', paragraphs: ['Your usual heart rate at rest, in beats per minute. This is a baseline you enter, not a live sensor reading.', 'Saved only in this browser. The wearable does not receive or enforce this setting, and the input range is not a validated device operating limit.'] },
   maxDepth: { title: 'Estimated maximum depth', paragraphs: ['The maximum depth you intend to set, in meters. The intended device behavior is to trigger beyond this depth.', 'Current firmware does not receive or enforce this setting. It is saved only in this browser, and the input range is not a validated device operating limit.'] },
-  weightKg: { title: 'Weight', paragraphs: ['Your body weight in kilograms. Adjust in 0.1 kg steps.', 'This is a user-entered profile setting, saved only in this browser. It is not sent to the wearable or used to control its triggers.'] },
+  weightKg: { title: 'Weight', paragraphs: ['Your body weight in kilograms or pounds. Choose kg or lbs; switching units converts the displayed value. Adjust in 0.1-unit steps.', 'This is a user-entered profile setting, saved only in this browser. It is not sent to the wearable or used to control its triggers.'] },
   heightCm: { title: 'Height', paragraphs: ['Your height in centimeters. Adjust in 1 cm steps.', 'This is a user-entered profile setting, saved only in this browser. It is not sent to the wearable or used to control its triggers.'] },
   settings: { title: 'Saving your settings', paragraphs: ['Save to browser keeps your heart-rate baseline, maximum depth, weight and height on this browser for your next visit.', 'Current firmware does not accept these settings. Saving here does not change the wearable’s trigger conditions.'] },
   connection: { title: 'Connect your wearable', paragraphs: ['Use Chrome on Windows, macOS or Android over HTTPS or localhost. Select your wearable in the Bluetooth picker. iPhone Safari cannot connect through this Web Bluetooth interface.', 'Saved history downloads before live readings begin. Keep the sensor at the water surface when zeroing. This app does not run automatic drowning detection or remotely operate the pump.'] },
@@ -71,7 +71,7 @@ export default function DeviceApp() {
   const ppg = t.ppg && !t.ppg.stale ? t.ppg.data : null;
   const system = t.system && !t.system.stale ? t.system.data : null;
   const stale = Object.values(t).some(value => value?.stale);
-  const dirty = !saved || draft.heartRate !== saved.heartRate || draft.maxDepth !== saved.maxDepth || draft.weightKg !== saved.weightKg || draft.heightCm !== saved.heightCm;
+  const dirty = !saved || draft.heartRate !== saved.heartRate || draft.maxDepth !== saved.maxDepth || draft.weightKg !== saved.weightKg || draft.heightCm !== saved.heightCm || draft.weightUnit !== saved.weightUnit;
   const history = snapshot.history;
   const validBaseline = connected && depth?.depthM != null;
 
@@ -93,7 +93,7 @@ export default function DeviceApp() {
     try { localStorage.setItem(preferenceKey, JSON.stringify(draft)); setSaved({ ...draft }); setSaveMessage('Saved on this browser.'); }
     catch { setSaveMessage('Could not save. Browser storage may be unavailable.'); }
   }
-  const change = (key: keyof Preferences, value: number) => { setDraft(p => ({ ...p, [key]: value })); setSaveMessage(''); };
+  const change = <K extends keyof Preferences,>(key: K, value: Preferences[K]) => { setDraft(p => ({ ...p, [key]: value })); setSaveMessage(''); };
 
   return <div className="device-app">
     <a className="skip-link" href="#workspace" onClick={event => { event.preventDefault(); document.getElementById('workspace')?.focus(); }}>Skip to content</a>
@@ -151,7 +151,8 @@ export default function DeviceApp() {
         <div className="settings-grid">
           <SettingCard name="Resting heart rate" unit="bpm" value={draft.heartRate} min={20} max={140} step={1} active={setting === 'heartRate'} onHelp={() => setHelp('heartRate')} onChange={v => change('heartRate', v)} />
           <SettingCard name="Estimated maximum depth" unit="m" value={draft.maxDepth} min={0.1} max={10} step={0.1} active={setting === 'maxDepth'} onHelp={() => setHelp('maxDepth')} onChange={v => change('maxDepth', v)} />
-          <SettingCard name="Weight" unit="kg" value={draft.weightKg} min={20} max={300} step={0.1} active={setting === 'weightKg'} onHelp={() => setHelp('weightKg')} onChange={v => change('weightKg', v)} />
+          <SettingCard name="Weight" unit={draft.weightUnit} value={displayWeight(draft.weightKg, draft.weightUnit)} min={displayWeight(20, draft.weightUnit)} max={displayWeight(150, draft.weightUnit)} step={0.1} active={setting === 'weightKg'} onHelp={() => setHelp('weightKg')} onChange={v => change('weightKg', weightToKg(v, draft.weightUnit))}
+            controls={<div className="weight-unit-switch" role="group" aria-label="Weight unit"><button aria-label="Kilograms" aria-pressed={draft.weightUnit === 'kg'} onClick={() => change('weightUnit', 'kg')}>kg</button><button aria-label="Pounds" aria-pressed={draft.weightUnit === 'lbs'} onClick={() => change('weightUnit', 'lbs')}>lbs</button></div>} />
           <SettingCard name="Height" unit="cm" value={draft.heightCm} min={80} max={250} step={1} active={setting === 'heightCm'} onHelp={() => setHelp('heightCm')} onChange={v => change('heightCm', v)} />
         </div>
         <div className="settings-footer"><div className="save-context"><div className="save-scope"><span>Browser only · not sent to wearable</span><button className="help-button" aria-label="About saving settings" onClick={() => setHelp('settings')}>?</button></div><span className="save-feedback" role="status">{saveMessage}</span></div>
@@ -183,14 +184,15 @@ export default function DeviceApp() {
   </div>;
 }
 
-function SettingCard({ name, unit, value, min, max, step, active, onHelp, onChange }: { name: string; unit: string; value: number; min: number; max: number; step: number; active: boolean; onHelp: () => void; onChange: (value: number) => void }) {
+function SettingCard({ name, unit, value, min, max, step, active, onHelp, onChange, controls }: { controls?: ReactNode; name: string; unit: string; value: number; min: number; max: number; step: number; active: boolean; onHelp: () => void; onChange: (value: number) => void }) {
   const id = useId();
   const change = (next: number) => onChange(Math.round(Math.min(max, Math.max(min, next)) * 10) / 10);
   return <article className={`setting-card ${active ? 'active-setting' : ''}`}>
     <div className="section-title"><h2>{name}</h2><button className="help-button" onClick={onHelp} aria-label={`About ${name.toLowerCase()}`}>?</button></div>
+    {controls}
     <div className="setting-value"><output htmlFor={id} aria-live="off">{value.toFixed(step < 1 ? 1 : 0)}</output><span>{unit}</span></div>
     <p id={`${id}-description`} className="sr-only">User-entered setting, saved only in this browser. Not applied to the wearable. Use the slider or the decrease and increase buttons.</p>
-    <div className="slider-controls"><button aria-label={`Decrease ${name.toLowerCase()}`} disabled={value <= min} onClick={() => change(value - step)}>−</button><input id={id} type="range" aria-label={name} aria-describedby={`${id}-description`} aria-valuetext={`${value.toFixed(step < 1 ? 1 : 0)} ${unit === 'bpm' ? 'beats per minute' : unit === 'kg' ? 'kilograms' : unit === 'cm' ? 'centimeters' : 'meters'}`} min={min} max={max} step={step} value={value} onChange={e => change(Number(e.target.value))} style={{ '--range-fill': `${(value - min) / (max - min) * 100}%` } as React.CSSProperties} /><button aria-label={`Increase ${name.toLowerCase()}`} disabled={value >= max} onClick={() => change(value + step)}>+</button></div>
+    <div className="slider-controls"><button aria-label={`Decrease ${name.toLowerCase()}`} disabled={value <= min} onClick={() => change(value - step)}>−</button><input id={id} type="range" aria-label={name} aria-describedby={`${id}-description`} aria-valuetext={`${value.toFixed(step < 1 ? 1 : 0)} ${unit === 'bpm' ? 'beats per minute' : unit === 'kg' ? 'kilograms' : unit === 'lbs' ? 'pounds' : unit === 'cm' ? 'centimeters' : 'meters'}`} min={min} max={max} step={step} value={value} onChange={e => change(Number(e.target.value))} style={{ '--range-fill': `${(value - min) / (max - min) * 100}%` } as React.CSSProperties} /><button aria-label={`Increase ${name.toLowerCase()}`} disabled={value >= max} onClick={() => change(value + step)}>+</button></div>
     <div className="range-labels"><span>{min} {unit}</span><span>{max} {unit}</span></div>
   </article>;
 }
