@@ -101,7 +101,15 @@ SinkRateEstimator estimator(totalMassKg,
 ```
 
 It calculates the natural sinking speed from the supplied SI-unit profile and
-can compare it with a valid `DepthReading` using the absolute rate difference.
+can compare it with a valid `DepthReading` using the absolute rate difference
+and normalized `sinkRiskScore`:
+
+`max(0, 1 - abs(measuredRate - naturalSinkingSpeed) / naturalSinkingSpeed)`.
+
+The score is `1` at an exact rate match and `0` when the mismatch reaches the
+natural sinking speed. It is available only when the depth-rate reading and
+model are valid and the modeled natural speed is positive; it is intended as a
+sensor-fusion risk component, not a calibrated drowning probability.
 The drag coefficient is permanently fixed at `0.85` in
 `SinkRateConfig::DRAG_COEFFICIENT` until hydrodynamic calibration is validated;
 it is not caller-configurable. No production mass, height, displaced volume, or

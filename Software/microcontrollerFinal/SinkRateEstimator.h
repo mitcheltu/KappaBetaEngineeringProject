@@ -6,6 +6,9 @@ struct SinkRateComparison {
   float measuredRateMps = NAN;
   float naturalSinkingSpeedMps = NAN;
   float rateDifferenceMps = NAN;
+  // Normalized sink-risk component for sensor fusion. This is not a calibrated
+  // clinical probability; valid values are in [0, 1].
+  float sinkRiskScore = NAN;
   bool valid = false;
 };
 

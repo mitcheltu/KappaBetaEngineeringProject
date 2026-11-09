@@ -1,5 +1,6 @@
 #include "SinkRateEstimator.h"
 
+#include <algorithm>
 #include <cmath>
 
 SinkRateEstimator::SinkRateEstimator(float totalMassKg,
@@ -22,7 +23,8 @@ SinkRateEstimator::SinkRateEstimator(float totalMassKg,
   if (!std::isfinite(squaredSpeed) || squaredSpeed < 0.0f) return;
 
   naturalSinkingSpeedMps_ = std::sqrt(squaredSpeed);
-  valid_ = std::isfinite(naturalSinkingSpeedMps_);
+  valid_ = std::isfinite(naturalSinkingSpeedMps_) &&
+           naturalSinkingSpeedMps_ > 0.0f;
 }
 
 SinkRateComparison SinkRateEstimator::compare(float measuredRateMps) const {
@@ -32,7 +34,17 @@ SinkRateComparison SinkRateEstimator::compare(float measuredRateMps) const {
   if (!valid_ || !std::isfinite(measuredRateMps)) return result;
 
   result.rateDifferenceMps = std::fabs(measuredRateMps - naturalSinkingSpeedMps_);
-  result.valid = std::isfinite(result.rateDifferenceMps);
+  if (!std::isfinite(result.rateDifferenceMps)) return result;
+
+  // R_sink = max(0, 1 - |v_measured - v_natural| / v_natural).
+  // Avoid an unnecessary division when the mismatch already guarantees zero.
+  if (result.rateDifferenceMps >= naturalSinkingSpeedMps_) {
+    result.sinkRiskScore = 0.0f;
+  } else {
+    result.sinkRiskScore = std::max(
+        0.0f, 1.0f - result.rateDifferenceMps / naturalSinkingSpeedMps_);
+  }
+  result.valid = std::isfinite(result.sinkRiskScore);
   return result;
 }
 
@@ -47,6 +59,7 @@ SinkRateComparison SinkRateEstimator::compare(const DepthReading& reading) const
   if (!usableReading) {
     result.valid = false;
     result.rateDifferenceMps = NAN;
+    result.sinkRiskScore = NAN;
   }
   return result;
 }
