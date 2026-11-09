@@ -161,7 +161,7 @@ export function createLiveConnectionService(options: {
         publish({ status: 'lost', telemetry: emptyTelemetry(), zeroPending: false, message: 'Device disconnected. Reconnect to resume readings.' });
       };
       chosen.addEventListener('gattserverdisconnected', disconnectListener);
-      publish({ status: 'connecting', deviceName: chosen.name || 'KappeBetaWearable' });
+      publish({ status: 'connecting', deviceName: chosen.name || 'KappaBetaWearable' });
       const server = await chosen.gatt.connect();
       if (activeGeneration !== generation || disposed) { disconnectAbandoned(server, chosen); return; }
       const service = await server.getPrimaryService(SERVICE_UUID);

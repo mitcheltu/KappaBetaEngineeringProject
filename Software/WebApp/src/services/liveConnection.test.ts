@@ -106,7 +106,7 @@ function fixture() {
     status.setUint8(1, 1); status.setUint16(2, view.getUint16(2, true), true);
     if (bytes[0] === 1 || bytes[0] === 3) characteristics[HISTORY_UUIDS.status].notify(status);
   };
-  const device: BleDevice & Events = Object.assign(new Events(), { name: 'KappeBetaWearable', gatt: undefined as GattServer | undefined });
+  const device: BleDevice & Events = Object.assign(new Events(), { name: 'KappaBetaWearable', gatt: undefined as GattServer | undefined });
   const server: GattServer = {
     connected: false,
     async connect() { this.connected = true; return this; },

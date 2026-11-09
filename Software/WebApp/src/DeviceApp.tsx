@@ -125,7 +125,7 @@ export default function DeviceApp() {
         <div className="connect-controls">
           <div className="section-title"><h1>Connect your device</h1><button className="help-button" aria-label="Bluetooth connection help" onClick={() => setHelp('connection')}>?</button></div>
           <div className="connection-group"><div className="device-card">
-            <div className="device-card-copy"><h2>KappeBetaWearable</h2>
+            <div className="device-card-copy"><h2>KappaBetaWearable</h2>
               <div id="connection-instruction" className="connection-feedback" role="status">
                 {snapshot.message || (snapshot.status === 'syncing' ? `Importing history${history ? ` · ${history.recordCount.toLocaleString()} records` : ''}.`
                   : connected ? 'Connected. Ready for a surface baseline.' : 'Turn on your wearable and keep it nearby.')}
