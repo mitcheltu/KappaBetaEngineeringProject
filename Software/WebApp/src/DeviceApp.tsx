@@ -5,6 +5,7 @@ import { createIndexedDbHistoryStore } from './services/historyStore';
 import { HistoryView } from './components/HistoryView.web';
 import { useTheme } from './useTheme';
 import { defaultPreferences, displayWeight, weightToKg, parsePreferences, preferenceKey, type Preferences } from './services/preferences';
+import { profileMatchesPreferences } from './services/profileProtocol';
 import './device-app.css';
 
 const oceanImage = require('../assets/ocean-background.png');
@@ -24,16 +25,16 @@ const number = (n: number | null | undefined, decimals = 0) => n == null ? '—'
 const tabs: Tab[] = ['connect', 'settings', 'live'];
 const sensors: Sensor[] = ['Depth', 'Vitals', 'Motion', 'Device', 'History'];
 const helpContent = {
-  heartRate: { title: 'Resting heart rate', paragraphs: ['Your usual heart rate at rest, in beats per minute. This is a baseline you enter, not a live sensor reading.', 'Saved only in this browser. The wearable does not receive or enforce this setting, and the input range is not a validated device operating limit.'] },
-  maxDepth: { title: 'Estimated maximum depth', paragraphs: ['The maximum depth you intend to set, in meters. The intended device behavior is to trigger beyond this depth.', 'Current firmware does not receive or enforce this setting. It is saved only in this browser, and the input range is not a validated device operating limit.'] },
-  weightKg: { title: 'Weight', paragraphs: ['Your body weight in kilograms or pounds. Choose kg or lbs; switching units converts the displayed value. Adjust in 0.1-unit steps.', 'This is a user-entered profile setting, saved only in this browser. It is not sent to the wearable or used to control its triggers.'] },
-  heightCm: { title: 'Height', paragraphs: ['Your height in centimeters. Adjust in 1 cm steps.', 'This is a user-entered profile setting, saved only in this browser. It is not sent to the wearable or used to control its triggers.'] },
-  settings: { title: 'Saving your settings', paragraphs: ['Save to browser keeps your heart-rate baseline, maximum depth, weight and height on this browser for your next visit.', 'Current firmware does not accept these settings. Saving here does not change the wearable’s trigger conditions.'] },
-  connection: { title: 'Connect your wearable', paragraphs: ['Use Chrome on Windows, macOS or Android over HTTPS or localhost. Select your wearable in the Bluetooth picker. iPhone Safari cannot connect through this Web Bluetooth interface.', 'Saved history downloads before live readings begin. Keep the sensor at the water surface when zeroing. This app does not run automatic drowning detection or remotely operate the pump.'] },
+  heartRate: { title: 'Resting heart rate', paragraphs: ['Your usual heart rate at rest, in beats per minute. This is a baseline you enter, not a live sensor reading.', 'Saved settings transfer to compatible firmware on the next connection. They do not control device triggers yet, and the input range is not a validated device operating limit.'] },
+  maxDepth: { title: 'Estimated maximum depth', paragraphs: ['The maximum depth you intend to set, in meters. The intended future device behavior is to trigger beyond this depth.', 'Saved settings transfer to compatible firmware on the next connection. Current firmware does not enforce this threshold, and the input range is not a validated device operating limit.'] },
+  weightKg: { title: 'Weight', paragraphs: ['Your body weight in kilograms or pounds. Choose kg or lbs; switching units converts the displayed value. Adjust in 0.1-unit steps.', 'Saved settings transfer on the next connection. Weight is sent in kilograms, rounded to 0.1 kg. It does not control device triggers yet.'] },
+  heightCm: { title: 'Height', paragraphs: ['Your height in centimeters. Adjust in 1 cm steps.', 'Saved settings transfer to compatible firmware on the next connection. It does not control device triggers yet.'] },
+  settings: { title: 'Saving your settings', paragraphs: ['Save to browser keeps your heart-rate baseline, maximum depth, weight and height for your next visit. On the next connection, the app sends the latest saved settings after history finishes and reads them back to confirm receipt.', 'Unsaved edits are never sent. With no saved settings, transfer is skipped. Older firmware and the demo may not support profiles. Receipt does not mean the settings control device triggers or persist through a device restart.'] },
+  connection: { title: 'Connect your wearable', paragraphs: ['Use Chrome on Windows, macOS or Android over HTTPS or localhost. Select your KappaBeta wearable or KappaBetaDemo in the Bluetooth picker. iPhone Safari cannot connect through this Web Bluetooth interface.', 'Saved history downloads when available; KappaBetaDemo streams live readings without recording. Keep the sensor at the water surface when zeroing. This app does not run automatic drowning detection or remotely operate the pump.'] },
   Depth: { title: 'About depth readings', paragraphs: ['Depth is calculated from water pressure relative to your surface baseline. In Connect, hold the sensor at the water surface and choose Zero depth at surface.', 'Pressure is shown in pascals and water temperature in degrees Celsius. A dash means no current valid reading is available.'] },
   Vitals: { title: 'About vital readings', paragraphs: ['Heart rate and oxygen estimates come from the wearable’s optical sensor. Both require a valid optical signal.', 'Red and infrared are raw optical readings. A dash means no current valid reading is available.'] },
   Motion: { title: 'About motion readings', paragraphs: ['X, Y and Z are the sensor’s three measurement axes. Acceleration is shown in g and includes gravity. Rotation is shown in degrees per second.', 'A dash means no current valid reading is available.'] },
-  Device: { title: 'About device status', paragraphs: ['Pump and blue LED values show commanded states, not measured water flow. Use the physical Cancel button on the wearable to stop the pump.', 'Sensor errors and optical overflows are diagnostic counts reported by the wearable. A dash means no current valid reading is available.'] },
+  Device: { title: 'About device status', paragraphs: ['Pump, vibration motor and blue LED values show commanded states, not measured water flow. The displayed countdown output matches your firmware. Use the physical Cancel button on the wearable to stop the pump.', 'Sensor errors and optical overflows are diagnostic counts reported by the wearable. A dash means no current valid reading is available.'] },
 };
 function nextTab(key: string, index: number, count: number) {
   return key === 'ArrowRight' ? (index + 1) % count : key === 'ArrowLeft' ? (index + count - 1) % count
@@ -43,7 +44,7 @@ function nextTab(key: string, index: number, count: number) {
 export default function DeviceApp() {
   const { theme, toggleTheme } = useTheme();
   const [store] = useState(() => createIndexedDbHistoryStore());
-  const [service] = useState(() => createLiveConnectionService({ historyStore: store }));
+  const [service] = useState(() => createLiveConnectionService({ historyStore: store, getSavedPreferences: readPreferences }));
   const snapshot = useSyncExternalStore(service.subscribe, service.getSnapshot, service.getSnapshot);
   const [frozen, setFrozen] = useState<typeof snapshot | null>(null);
   const [tab, setTab] = useState<Tab>('connect');
@@ -57,6 +58,7 @@ export default function DeviceApp() {
   const returnFocus = useRef<HTMLElement | null>(null);
   useEffect(() => () => service.disconnect(), [service]);
   useEffect(() => { if (!['connected', 'syncing'].includes(snapshot.status)) setFrozen(null); }, [snapshot.status]);
+  useEffect(() => { if (snapshot.profileSync.status !== 'idle') setSaveMessage(''); }, [snapshot.profileSync.status]);
   useEffect(() => { document.documentElement.lang = 'en'; document.title = 'Kappa Beta · Wearable'; }, []);
   useEffect(() => {
     if (help) { returnFocus.current = document.activeElement as HTMLElement; dialog.current?.showModal(); document.getElementById('help-title')?.focus(); }
@@ -70,8 +72,15 @@ export default function DeviceApp() {
   const imu = t.imu && !t.imu.stale ? t.imu.data : null;
   const ppg = t.ppg && !t.ppg.stale ? t.ppg.data : null;
   const system = t.system && !t.system.stale ? t.system.data : null;
+  const indicatorLabel = system?.vibrationMotor ? 'Vibration motor' : 'Blue LED';
+  const pumpStatus = !system ? '—' : system.countdownActive ? `${Math.ceil(system.remainingMs / 1000)}s countdown`
+    : system.pumpOn ? system.remainingMs > 0 ? `Running · ${Math.ceil(system.remainingMs / 1000)}s left` : 'Running'
+      : system.pumpEnabled ? 'Stopped' : 'Disabled';
   const stale = Object.values(t).some(value => value?.stale);
   const dirty = !saved || draft.heartRate !== saved.heartRate || draft.maxDepth !== saved.maxDepth || draft.weightKg !== saved.weightKg || draft.heightCm !== saved.heightCm || draft.weightUnit !== saved.weightUnit;
+  const profilePending = saved !== null && (snapshot.profileSync.status === 'not-saved'
+    || (snapshot.profileSync.status === 'synced' && !profileMatchesPreferences(snapshot.profileSync.confirmedProfile, saved)));
+  const profileMessage = profilePending ? 'New saved settings pending. Reconnect to send them.' : snapshot.profileSync.message;
   const history = snapshot.history;
   const validBaseline = connected && depth?.depthM != null;
 
@@ -90,7 +99,7 @@ export default function DeviceApp() {
     if (next >= 0) { event.preventDefault(); selectSensor(sensors[next]); }
   }
   function save() {
-    try { localStorage.setItem(preferenceKey, JSON.stringify(draft)); setSaved({ ...draft }); setSaveMessage('Saved on this browser.'); }
+    try { localStorage.setItem(preferenceKey, JSON.stringify(draft)); setSaved({ ...draft }); setSaveMessage('Saved. Will send on your next connection.'); }
     catch { setSaveMessage('Could not save. Browser storage may be unavailable.'); }
   }
   const change = <K extends keyof Preferences,>(key: K, value: Preferences[K]) => { setDraft(p => ({ ...p, [key]: value })); setSaveMessage(''); };
@@ -125,7 +134,7 @@ export default function DeviceApp() {
         <div className="connect-controls">
           <div className="section-title"><h1>Connect your device</h1><button className="help-button" aria-label="Bluetooth connection help" onClick={() => setHelp('connection')}>?</button></div>
           <div className="connection-group"><div className="device-card">
-            <div className="device-card-copy"><h2>KappaBetaWearable</h2>
+            <div className="device-card-copy"><h2>{snapshot.deviceName || 'KappaBeta wearable'}</h2>
               <div id="connection-instruction" className="connection-feedback" role="status">
                 {snapshot.message || (snapshot.status === 'syncing' ? `Importing history${history ? ` · ${history.recordCount.toLocaleString()} records` : ''}.`
                   : connected ? 'Connected. Ready for a surface baseline.' : 'Turn on your wearable and keep it nearby.')}
@@ -135,6 +144,7 @@ export default function DeviceApp() {
               {busy ? 'Cancel' : connected ? 'Disconnect' : snapshot.status === 'lost' ? 'Reconnect' : 'Connect wearable'}
             </button>
           </div></div>
+          {profileMessage && <p className="profile-sync-feedback" role="status">{profileMessage}</p>}
           <div className="baseline-card">
             <div className="baseline-heading"><h2>Depth from surface</h2><span className="state-label">{validBaseline ? 'Available' : 'Not set'}</span></div>
             <div className="baseline-value"><strong>{number(depth?.depthM, 2)}</strong><span>m</span></div>
@@ -155,13 +165,13 @@ export default function DeviceApp() {
             controls={<div className="weight-unit-switch" role="group" aria-label="Weight unit"><button aria-label="Kilograms" aria-pressed={draft.weightUnit === 'kg'} onClick={() => change('weightUnit', 'kg')}>kg</button><button aria-label="Pounds" aria-pressed={draft.weightUnit === 'lbs'} onClick={() => change('weightUnit', 'lbs')}>lbs</button></div>} />
           <SettingCard name="Height" unit="cm" value={draft.heightCm} min={80} max={250} step={1} active={setting === 'heightCm'} onHelp={() => setHelp('heightCm')} onChange={v => change('heightCm', v)} />
         </div>
-        <div className="settings-footer"><div className="save-context"><div className="save-scope"><span>Browser only · not sent to wearable</span><button className="help-button" aria-label="About saving settings" onClick={() => setHelp('settings')}>?</button></div><span className="save-feedback" role="status">{saveMessage}</span></div>
+        <div className="settings-footer"><div className="save-context"><div className="save-scope"><span>Saved here · sent on next connection</span><button className="help-button" aria-label="About saving settings" onClick={() => setHelp('settings')}>?</button></div><span className="save-feedback" role="status">{profilePending ? profileMessage : saveMessage || profileMessage}</span></div>
           <div className="setting-actions"><button className="button outline" disabled={!dirty} onClick={() => { setDraft(saved ?? { ...defaultPreferences }); setSaveMessage('Edits reset.'); }}>Reset edits</button><button className="button primary" disabled={!dirty} onClick={save}>Save to browser</button></div>
         </div>
       </section>
 
       <section id="panel-live" className="tab-panel live-panel" role="tabpanel" aria-labelledby="tab-live" tabIndex={0} hidden={tab !== 'live'}>
-        <div className="page-heading"><div><span className="eyebrow">{sensor === 'History' ? 'SAVED ON THIS BROWSER' : 'DIRECT FROM YOUR ESP32'}</span><h1>{sensor === 'History' ? 'Your recordings.' : 'In the water.'}</h1></div><div className="live-state" hidden={sensor === 'History'}><span className="stream-state" role="status">{frozen ? 'Display paused · recording continues' : connected ? stale ? 'Some readings are stale' : 'Receiving sensor data' : snapshot.status === 'syncing' ? 'Importing history' : 'No live data'}</span>{linked ? <button className="pause-control" onClick={() => setFrozen(frozen ? null : snapshot)}>{frozen ? 'Resume updates' : 'Pause updates'}</button> : <button className="pause-control" onClick={() => navigate('connect')}>Open connection</button>}</div></div>
+        <div className="page-heading"><div><span className="eyebrow">{sensor === 'History' ? 'SAVED ON THIS BROWSER' : 'DIRECT FROM YOUR ESP32'}</span><h1>{sensor === 'History' ? 'Your recordings.' : 'In the water.'}</h1></div><div className="live-state" hidden={sensor === 'History'}><span className="stream-state" role="status">{frozen ? history?.phase === 'live-only' ? 'Display paused · live stream continues' : 'Display paused · recording continues' : connected ? stale ? 'Some readings are stale' : history?.phase === 'live-only' ? 'Live only · no recording' : 'Receiving sensor data' : snapshot.status === 'syncing' ? 'Importing history' : 'No live data'}</span>{linked ? <button className="pause-control" onClick={() => setFrozen(frozen ? null : snapshot)}>{frozen ? 'Resume updates' : 'Pause updates'}</button> : <button className="pause-control" onClick={() => navigate('connect')}>Open connection</button>}</div></div>
         <div className="sensor-tabs" role="tablist" aria-label="Sensor views">{sensors.map((name, index) => <button key={name} id={`sensor-${name}`} role="tab" aria-selected={sensor === name} aria-controls={`sensor-panel-${name}`} tabIndex={sensor === name ? 0 : -1} onKeyDown={event => sensorKeys(event, index)} onClick={() => selectSensor(name)}>{name}</button>)}</div>
         <div className="sensor-content">
           <div className="depth-view" id="sensor-panel-Depth" role="tabpanel" aria-labelledby="sensor-Depth" tabIndex={0} hidden={sensor !== 'Depth'}>
@@ -170,7 +180,7 @@ export default function DeviceApp() {
           </div>
           <div className="vitals-view metric-grid" id="sensor-panel-Vitals" role="tabpanel" aria-labelledby="sensor-Vitals" tabIndex={0} hidden={sensor !== 'Vitals'}><Metric label="Heart rate" value={number(ppg?.heartRateBpm)} unit="bpm" /><Metric label="Oxygen estimate" value={number(ppg?.spo2Percent, 1)} unit="%" /><div className="raw-reading"><span>Raw optical · red / infrared</span><strong>{number(ppg?.red)} / {number(ppg?.infrared)}</strong>{t.ppg?.stale && <p>Reading stale.</p>}</div></div>
           <div className="motion-view" id="sensor-panel-Motion" role="tabpanel" aria-labelledby="sensor-Motion" tabIndex={0} hidden={sensor !== 'Motion'}><Axes title="Acceleration" values={imu?.accelerationG} unit="g" decimals={3} /><Axes title="Rotation" values={imu?.angularVelocityDps} unit="°/s" decimals={1} />{t.imu?.stale && <p>Reading stale.</p>}</div>
-          <div className="device-view metric-grid" id="sensor-panel-Device" role="tabpanel" aria-labelledby="sensor-Device" tabIndex={0} hidden={sensor !== 'Device'}><Metric label="Battery" value={number(system?.batteryV, 2)} unit="V" /><div className="actuator-card"><span>Pump command</span><strong>{!system ? '—' : system.countdownActive ? `${Math.ceil(system.remainingMs / 1000)}s countdown` : system.pumpOn ? 'Running' : system.pumpEnabled ? 'Stopped' : 'Disabled'}</strong><span>Blue LED {system ? system.vibrationOn ? 'on' : 'off' : '—'}</span><p className="control-note">Use physical Cancel on the wearable to stop the pump.</p></div><dl className="diagnostic-readings"><div><dt>Sensor errors</dt><dd>{system?.sensorErrors ?? '—'}</dd></div><div><dt>Optical overflows</dt><dd>{system?.ppgOverflowCount ?? '—'}</dd></div></dl></div>
+          <div className="device-view metric-grid" id="sensor-panel-Device" role="tabpanel" aria-labelledby="sensor-Device" tabIndex={0} hidden={sensor !== 'Device'}><Metric label="Battery" value={number(system?.batteryV, 2)} unit="V" /><div className="actuator-card"><span>Pump command</span><strong>{pumpStatus}</strong><span>{indicatorLabel} {system ? system.vibrationOn ? 'on' : 'off' : '—'}</span><p className="control-note">Use physical Cancel on the wearable to stop the pump.</p></div><dl className="diagnostic-readings"><div><dt>Sensor errors</dt><dd>{system?.sensorErrors ?? '—'}</dd></div><div><dt>Optical overflows</dt><dd>{system?.ppgOverflowCount ?? '—'}</dd></div></dl></div>
           <div className="history-container" id="sensor-panel-History" role="tabpanel" aria-labelledby="sensor-History" tabIndex={0} hidden={sensor !== 'History'}><HistoryView store={store} progress={(frozen ?? snapshot).history} connected={linked} paused={frozen !== null} onConnect={() => navigate('connect')} /></div>
         </div>
         <div className="live-footer" hidden={sensor === 'History'}><button className="button outline" onClick={() => { if (sensor !== 'History') setHelp(sensor); }}>About {sensor.toLowerCase()}</button><button className="button outline" onClick={() => selectSensor('History')}>History & export</button></div>
@@ -191,7 +201,7 @@ function SettingCard({ name, unit, value, min, max, step, active, onHelp, onChan
     <div className="section-title"><h2>{name}</h2><button className="help-button" onClick={onHelp} aria-label={`About ${name.toLowerCase()}`}>?</button></div>
     {controls}
     <div className="setting-value"><output htmlFor={id} aria-live="off">{value.toFixed(step < 1 ? 1 : 0)}</output><span>{unit}</span></div>
-    <p id={`${id}-description`} className="sr-only">User-entered setting, saved only in this browser. Not applied to the wearable. Use the slider or the decrease and increase buttons.</p>
+    <p id={`${id}-description`} className="sr-only">User-entered setting. Save to browser to send it on the next connection. Settings do not control device triggers yet. Use the slider or the decrease and increase buttons.</p>
     <div className="slider-controls"><button aria-label={`Decrease ${name.toLowerCase()}`} disabled={value <= min} onClick={() => change(value - step)}>−</button><input id={id} type="range" aria-label={name} aria-describedby={`${id}-description`} aria-valuetext={`${value.toFixed(step < 1 ? 1 : 0)} ${unit === 'bpm' ? 'beats per minute' : unit === 'kg' ? 'kilograms' : unit === 'lbs' ? 'pounds' : unit === 'cm' ? 'centimeters' : 'meters'}`} min={min} max={max} step={step} value={value} onChange={e => change(Number(e.target.value))} style={{ '--range-fill': `${(value - min) / (max - min) * 100}%` } as React.CSSProperties} /><button aria-label={`Increase ${name.toLowerCase()}`} disabled={value >= max} onClick={() => change(value + step)}>+</button></div>
     <div className="range-labels"><span>{min} {unit}</span><span>{max} {unit}</span></div>
   </article>;

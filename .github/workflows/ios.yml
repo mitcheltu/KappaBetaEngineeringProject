@@ -1,0 +1,45 @@
+name: iOS checks
+
+on:
+  push:
+    paths: ['Software/iOS/**', 'Software/WebApp/src/services/*Protocol.ts', 'Software/tests/history-protocol-fixture.json', '.github/workflows/ios.yml']
+  pull_request:
+    paths: ['Software/iOS/**', 'Software/WebApp/src/services/*Protocol.ts', 'Software/tests/history-protocol-fixture.json', '.github/workflows/ios.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: Software/iOS
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: Software/WebApp/package-lock.json
+      - name: Install WebApp protocol test tooling
+        working-directory: Software/WebApp
+        run: npm ci
+      - name: Check shared firmware and WebApp wire fixture
+        run: node scripts/validate-web-fixture.mjs
+      - name: Verify generated project is current
+        run: |
+          python3 scripts/generate_project.py
+          git diff --exit-code -- KappaBeta.xcodeproj
+      - name: Test portable protocol and storage
+        run: swift test
+      - name: Select available iPhone simulator
+        run: |
+          xcrun simctl list devices available -j > "$RUNNER_TEMP/simulators.json"
+          python3 -c 'import json, os; d=json.load(open(os.environ["RUNNER_TEMP"]+"/simulators.json")); print("SIMULATOR_ID="+next(v["udid"] for k, a in d["devices"].items() if "iOS" in k for v in a if v["name"].startswith("iPhone")))' >> "$GITHUB_ENV"
+      - name: Build app and test transfer lifecycle
+        run: |
+          xcodebuild test -project KappaBeta.xcodeproj -scheme KappaBeta \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO

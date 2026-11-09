@@ -5,6 +5,8 @@ import {
 import { decodeIdentity, HISTORY_UUIDS } from './historyProtocol';
 import { createIndexedDbHistoryStore, type HistoryStore } from './historyStore';
 import { createHistoryTransfer, type HistoryProgress } from './historyTransfer';
+import type { Preferences } from './preferences';
+import { encodeProfile, PROFILE_UUID, verifyProfileReadback } from './profileProtocol';
 
 // Narrow Web Bluetooth interfaces avoid a runtime dependency and allow transport tests.
 export interface GattCharacteristic {
@@ -32,11 +34,14 @@ export interface BluetoothAdapter {
 }
 
 export type LiveStatus = 'disconnected' | 'selecting' | 'connecting' | 'syncing' | 'connected' | 'lost' | 'error' | 'unsupported';
+export type ProfileSyncStatus = 'idle' | 'waiting' | 'sending' | 'synced' | 'unsupported' | 'not-saved' | 'error';
+export type ProfileSync = Readonly<{ status: ProfileSyncStatus; message: string; confirmedProfile?: readonly number[] }>;
 type TimedReading<K extends ReadingKind> = { data: Readings[K]; receivedAt: number; stale: boolean };
 export type LiveTelemetry = { [K in ReadingKind]: TimedReading<K> | null };
 export type LiveSnapshot = Readonly<{
   status: LiveStatus; deviceName: string | null; message: string;
   telemetry: LiveTelemetry; zeroPending: boolean; history: HistoryProgress | null;
+  profileSync: ProfileSync;
 }>;
 const emptyTelemetry = (): LiveTelemetry => ({ depth: null, imu: null, ppg: null, system: null });
 
@@ -48,12 +53,14 @@ function browserAdapter(): BluetoothAdapter | undefined {
 export function createLiveConnectionService(options: {
   bluetooth?: BluetoothAdapter; now?: () => number; staleAfterMs?: number; checkIntervalMs?: number;
   historyStore?: HistoryStore; historyTimeoutMs?: number; historyPollIntervalMs?: number;
+  getSavedPreferences?: () => Preferences | null;
 } = {}) {
   const now = options.now ?? Date.now;
   const staleAfterMs = options.staleAfterMs ?? STALE_AFTER_MS;
   const listeners = new Set<() => void>();
   let snapshot: LiveSnapshot = Object.freeze({
     status: 'disconnected', deviceName: null, message: '', telemetry: emptyTelemetry(), zeroPending: false, history: null,
+    profileSync: { status: 'idle' as const, message: '' },
   });
   let generation = 0;
   let device: BleDevice | undefined;
@@ -103,7 +110,8 @@ export function createLiveConnectionService(options: {
   function disconnect() {
     generation += 1;
     release();
-    publish({ status: 'disconnected', deviceName: null, telemetry: emptyTelemetry(), message: '', zeroPending: false });
+    publish({ status: 'disconnected', deviceName: null, telemetry: emptyTelemetry(), message: '', zeroPending: false,
+      profileSync: { status: 'idle', message: '' } });
   }
 
   function refreshStaleness() {
@@ -146,7 +154,8 @@ export function createLiveConnectionService(options: {
     }
     const activeGeneration = ++generation;
     release();
-    publish({ status: 'selecting', telemetry: emptyTelemetry(), message: '', deviceName: null, history: null });
+    publish({ status: 'selecting', telemetry: emptyTelemetry(), message: '', deviceName: null, history: null,
+      profileSync: { status: 'waiting', message: 'Saved settings will transfer after history finishes.' } });
     let chosen: BleDevice | undefined;
     try {
       // Do not add an await before this call: requestDevice requires the button gesture.
@@ -158,7 +167,8 @@ export function createLiveConnectionService(options: {
         if (activeGeneration !== generation) return;
         generation += 1;
         release();
-        publish({ status: 'lost', telemetry: emptyTelemetry(), zeroPending: false, message: 'Device disconnected. Reconnect to resume readings.' });
+        publish({ status: 'lost', telemetry: emptyTelemetry(), zeroPending: false, message: 'Device disconnected. Reconnect to resume readings.',
+          profileSync: { status: 'idle', message: 'Disconnected. Saved settings will transfer on the next connection.' } });
       };
       chosen.addEventListener('gattserverdisconnected', disconnectListener);
       publish({ status: 'connecting', deviceName: chosen.name || 'KappaBetaWearable' });
@@ -207,6 +217,8 @@ export function createLiveConnectionService(options: {
       publish({ status: 'syncing' });
       await currentTransfer.start();
       if (activeGeneration !== generation || disposed) { disconnectAbandoned(server, chosen); return; }
+      await syncSavedProfile(activeGeneration, uuid => service.getCharacteristic(uuid));
+      if (activeGeneration !== generation || disposed) { disconnectAbandoned(server, chosen); return; }
       for (const kind of Object.keys(TELEMETRY_UUIDS) as ReadingKind[]) {
         const characteristic = await gattOperation(activeGeneration, () => service.getCharacteristic(TELEMETRY_UUIDS[kind]));
         if (activeGeneration !== generation || disposed) { disconnectAbandoned(server, chosen); return; }
@@ -227,9 +239,47 @@ export function createLiveConnectionService(options: {
       if (activeGeneration !== generation || disposed) { if (chosen?.gatt) disconnectAbandoned(chosen.gatt, chosen); return; }
       generation += 1;
       release();
-      const cancelled = error instanceof Error && error.name === 'NotFoundError';
+      const cancelled = !chosen && error instanceof Error && error.name === 'NotFoundError';
       publish({ status: cancelled ? 'disconnected' : 'error', telemetry: emptyTelemetry(),
+        ...(snapshot.profileSync.status === 'waiting' ? { profileSync: { status: 'idle' as const, message: '' } } : {}),
         message: cancelled ? 'Device selection cancelled.' : error instanceof Error ? error.message : 'Bluetooth connection failed.' });
+    }
+  }
+
+  async function syncSavedProfile(activeGeneration: number, getCharacteristic: (uuid: string) => Promise<GattCharacteristic>) {
+    try {
+      // Read at transfer time, after history: never capture drafts or stale settings at service creation.
+      const preferences = options.getSavedPreferences?.() ?? null;
+      if (!preferences) {
+        publish({ profileSync: { status: 'not-saved', message: 'No saved settings to send. Save your settings, then reconnect.' } });
+        return;
+      }
+      const bytes = encodeProfile(preferences);
+      let characteristic: GattCharacteristic;
+      try {
+        characteristic = await gattOperation(activeGeneration, () => getCharacteristic(PROFILE_UUID));
+      } catch (error) {
+        if (activeGeneration !== generation || disposed) return;
+        if (error instanceof Error && error.name === 'NotFoundError') {
+          publish({ profileSync: { status: 'unsupported', message: 'This firmware does not support profile settings. Your settings remain saved in this browser.' } });
+          return;
+        }
+        throw error;
+      }
+      if (activeGeneration !== generation || disposed) return;
+      publish({ profileSync: { status: 'sending', message: 'Sending saved settings and checking device receipt…' } });
+      await gattOperation(activeGeneration, () => characteristic.writeValueWithResponse(bytes));
+      if (activeGeneration !== generation || disposed) return;
+      const accepted = await gattOperation(activeGeneration, () => characteristic.readValue());
+      if (activeGeneration !== generation || disposed) return;
+      verifyProfileReadback(bytes, accepted);
+      publish({ profileSync: { status: 'synced', confirmedProfile: Object.freeze([...bytes]),
+        message: 'Profile received. Settings do not control triggers yet.' } });
+    } catch (error) {
+      if (activeGeneration !== generation || disposed) return;
+      const message = error instanceof Error ? error.message : 'Profile settings transfer failed. Reconnect to retry.';
+      publish({ profileSync: { status: 'error', message } });
+      throw new Error(`Profile settings transfer failed: ${message}`);
     }
   }
 

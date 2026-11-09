@@ -25,9 +25,10 @@ export function LiveTelemetryPanel() {
   const i = imu && !imu.stale ? imu.data : null;
   const p = ppg && !ppg.stale ? ppg.data : null;
   const s = system && !system.stale ? system.data : null;
+  const indicatorLabel = s?.vibrationMotor ? 'Vibration motor' : 'Blue LED';
   const actuatorStatus = !s ? 'Waiting for device status'
-    : s.countdownActive ? `Countdown ${Math.ceil(s.remainingMs / 1000)} s / ${s.vibrationOn ? 'blue LED on' : 'blue LED off'}`
-      : s.pumpOn ? 'Pump running until Cancel'
+    : s.countdownActive ? `Countdown ${Math.ceil(s.remainingMs / 1000)} s / ${indicatorLabel.toLowerCase()} ${s.vibrationOn ? 'on' : 'off'}`
+      : s.pumpOn ? s.remainingMs > 0 ? `Pump running · ${Math.ceil(s.remainingMs / 1000)} s left` : 'Pump running until Cancel'
         : s.pumpEnabled ? 'Idle · pump stopped' : 'Pump disabled';
   const hasStale = Object.values(snapshot.telemetry).some(reading => reading?.stale);
   const linkLabel = connected ? (hasStale ? 'CONNECTED / DATA STALE' : snapshot.history?.phase === 'live-only' ? 'CONNECTED / LIVE ONLY' : 'CONNECTED / LIVE')
@@ -44,7 +45,7 @@ export function LiveTelemetryPanel() {
         icon={connected || pending ? undefined : 'bluetooth'} secondary={connected || pending}
         onPress={connected || pending ? service.disconnect : () => { void service.connect(); }} />
     </View>
-    <Text style={styles.description}>Select KappaBetaWearable in the browser’s Bluetooth picker. Saved sensor history downloads first, then live readings begin. The controls above are a separate demo.</Text>
+    <Text style={styles.description}>Select your KappaBeta wearable or KappaBetaDemo in the browser’s Bluetooth picker. Saved history downloads when available; the demo streams live readings only. The controls above are a separate demo.</Text>
     <SavedHistoryPanel store={historyStore} progress={snapshot.history} connected={connected || snapshot.status === 'syncing'} />
     <View style={styles.grid}>
       <Reading label="DEPTH" value={format(d?.depthM, 3, 'm')} note={depth?.stale ? 'Stale reading' : d?.pressurePa != null && d.depthM == null ? 'Zero at the surface first' : 'Relative to surface baseline'} />
@@ -69,8 +70,8 @@ export function LiveTelemetryPanel() {
     </View>
     {!!snapshot.message && <Text accessibilityLiveRegion="polite" style={styles.message}>{snapshot.message}</Text>}
     {s && <View style={{ gap: 6 }}>
-      <Text style={styles.diagnostics}>Blue LED {s.vibrationOn ? 'ON' : 'OFF'} · PPG overflows {s.ppgOverflowCount} · Sensor errors {s.sensorErrors} · Cancel {s.cancelPressed ? 'pressed' : 'released'} · SOS {s.sosPressed ? 'pressed' : 'released'}</Text>
-      <Text style={styles.footnote}>Pump and blue LED status show commanded outputs. Water flow is not measured. Use the physical Cancel button to abort the test or stop the pump.</Text>
+      <Text style={styles.diagnostics}>{indicatorLabel} {s.vibrationOn ? 'ON' : 'OFF'} · PPG overflows {s.ppgOverflowCount} · Sensor errors {s.sensorErrors} · Cancel {s.cancelPressed ? 'pressed' : 'released'} · SOS {s.sosPressed ? 'pressed' : 'released'}</Text>
+      <Text style={styles.footnote}>Pump and {indicatorLabel.toLowerCase()} status show commanded outputs. Water flow is not measured. Use the physical Cancel button to abort the test or stop the pump.</Text>
     </View>}
     <Text style={styles.footnote}>Use Chrome on Windows, macOS, or Android over HTTPS or localhost. No drowning detection or remote pump activation.</Text>
   </View>;

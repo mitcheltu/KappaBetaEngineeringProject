@@ -24,7 +24,7 @@ export type PpgReading = Header & {
 export type SystemReading = Header & {
   batteryV: number | null; pumpEnabled: boolean; pumpOn: boolean;
   cancelPressed: boolean; sosPressed: boolean; remainingMs: number;
-  vibrationOn: boolean; countdownActive: boolean;
+  vibrationOn: boolean; countdownActive: boolean; vibrationMotor: boolean;
   ppgOverflowCount: number; sensorErrors: number;
 };
 export type Readings = { depth: DepthReading; imu: ImuReading; ppg: PpgReading; system: SystemReading };
@@ -73,6 +73,8 @@ export function decodePacket<K extends ReadingKind>(kind: K, packet: DataView): 
         pumpEnabled: Boolean(flags & 2), pumpOn: Boolean(flags & 4),
         cancelPressed: Boolean(flags & 8), sosPressed: Boolean(flags & 16),
         vibrationOn: Boolean(flags & 32), countdownActive: Boolean(flags & 64),
+        // Demo bit 7 identifies a real motor; older packets retain the blue LED label.
+        vibrationMotor: Boolean(flags & 128),
         remainingMs: packet.getUint16(10, true),
         ppgOverflowCount: packet.getUint32(12, true), sensorErrors: packet.getUint32(16, true),
       };
