@@ -92,11 +92,12 @@ The current values are implementation defaults and are explicitly
 SinkRateEstimator estimator(totalMassKg,
                             displacedVolumeM3,
                             waterDensityKgM3,
-                            dragCoefficient,
                             projectedAreaM2);
 ```
 
 It calculates the natural sinking speed from the supplied SI-unit profile and
 can compare it with a valid `DepthReading` using the absolute rate difference.
-No production mass, height, displaced volume, Cd, or projected-area values are
-hardcoded in this example.
+The drag coefficient is permanently fixed at `0.85` in
+`SinkRateConfig::DRAG_COEFFICIENT` until hydrodynamic calibration is validated;
+it is not caller-configurable. No production mass, height, displaced volume, or
+projected-area values are hardcoded in this example.

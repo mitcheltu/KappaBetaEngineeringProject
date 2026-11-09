@@ -5,15 +5,14 @@
 SinkRateEstimator::SinkRateEstimator(float totalMassKg,
                                      float displacedVolumeM3,
                                      float waterDensityKgM3,
-                                     float dragCoefficient,
                                      float projectedAreaM2,
                                      float gravityMps2) {
   const float netWeightMass = totalMassKg - waterDensityKgM3 * displacedVolumeM3;
-  const float denominator = waterDensityKgM3 * dragCoefficient * projectedAreaM2;
+  const float denominator = waterDensityKgM3 *
+                            SinkRateConfig::DRAG_COEFFICIENT * projectedAreaM2;
   const bool validInputs = std::isfinite(totalMassKg) && totalMassKg > 0.0f &&
                            std::isfinite(displacedVolumeM3) && displacedVolumeM3 >= 0.0f &&
                            std::isfinite(waterDensityKgM3) && waterDensityKgM3 > 0.0f &&
-                           std::isfinite(dragCoefficient) && dragCoefficient > 0.0f &&
                            std::isfinite(projectedAreaM2) && projectedAreaM2 > 0.0f &&
                            std::isfinite(gravityMps2) && gravityMps2 > 0.0f &&
                            netWeightMass >= 0.0f && denominator > 0.0f;
