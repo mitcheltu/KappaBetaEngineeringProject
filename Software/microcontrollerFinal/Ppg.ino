@@ -72,6 +72,11 @@ void acceptPpgSample(uint32_t red, uint32_t ir, uint64_t sampleTimeUs) {
   recordPpgSample(sampleTimeUs);
 }
 
+float getPpgRisk() {
+  // Placeholder until the PPG risk model and mapping are available.
+  return 0.0f;
+}
+
 void servicePpg() {
   if (!ppgReady) return;
   const uint32_t now = millis();

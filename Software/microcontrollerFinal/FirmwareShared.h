@@ -56,6 +56,7 @@ bool writeRegister(uint8_t address, uint8_t reg, uint8_t value);
 void resetPpgWindow();
 bool clearPpgFifo();
 void acceptPpgSample(uint32_t red, uint32_t ir, uint64_t sampleTimeUs);
+float getPpgRisk();
 void servicePpg();
 void initializePpg();
 void initializeImu();
