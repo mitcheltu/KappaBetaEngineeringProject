@@ -2,9 +2,9 @@ name: iOS checks
 
 on:
   push:
-    paths: ['Software/iOS/**', 'Software/WebApp/src/services/*Protocol.ts', 'Software/tests/history-protocol-fixture.json', '.github/workflows/ios.yml']
+    paths: ['Software/iOS/**', 'Software/WebApp/src/services/*Protocol.ts', 'Software/testsAndDemo/tests/history-protocol-fixture.json', '.github/workflows/ios.yml']
   pull_request:
-    paths: ['Software/iOS/**', 'Software/WebApp/src/services/*Protocol.ts', 'Software/tests/history-protocol-fixture.json', '.github/workflows/ios.yml']
+    paths: ['Software/iOS/**', 'Software/WebApp/src/services/*Protocol.ts', 'Software/testsAndDemo/tests/history-protocol-fixture.json', '.github/workflows/ios.yml']
   workflow_dispatch:
 
 permissions:

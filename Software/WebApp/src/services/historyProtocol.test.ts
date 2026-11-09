@@ -61,7 +61,7 @@ test('CSV distinguishes PPG estimated sample time, invalid values, baseline even
 });
 
 test('actual C++ wire fixture agrees on identity, CRC, all record kinds, timestamps and ACK', () => {
-  const fixture = JSON.parse(readFileSync(new URL('../../../tests/history-protocol-fixture.json', import.meta.url), 'utf8'));
+  const fixture = JSON.parse(readFileSync(new URL('../../../testsAndDemo/tests/history-protocol-fixture.json', import.meta.url), 'utf8'));
   const bytes = (hex: string) => Uint8Array.from(Buffer.from(hex, 'hex'));
   const view = (hex: string) => new DataView(bytes(hex).buffer);
   const expected = fixture.expected, identity = decodeIdentity(view(fixture.identityHex));
