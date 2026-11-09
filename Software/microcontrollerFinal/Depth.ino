@@ -16,32 +16,44 @@ void initializeDepth() {
   }
 }
 
-void sampleDepth() {
-  if (!depthReady) return;
-  if (!depthSensor.update()) {
-    const DepthReading& reading = depthSensor.reading();
-    logMessage(LogLevel::WARN,
-               "DEPTH",
-               "MS5837 sample invalid: pressure=%.1fPa temperature=%.2fC quality=0x%04x",
-               reading.pressurePa, reading.temperatureC, unsigned(reading.qualityFlags));
-    ++sensorErrors;
-    depthReady = false;
+void serviceDepth() {
+  const DepthServiceEvent event = depthSensor.service();
+  if (event == DepthServiceEvent::NONE) return;
+
+  if (event == DepthServiceEvent::SAMPLE_PUBLISHED) {
+    recordDepthSample();
+    return;
   }
-  recordDepthSample();
+
+  if (event == DepthServiceEvent::SURFACE_ZERO_PUBLISHED) {
+    logMessage(LogLevel::INFO, "DEPTH",
+               "Surface zero=%.1fPa; sensor must be at the water surface",
+               depthSensor.reading().surfacePressurePa);
+    recordSurfaceZero();
+    return;
+  }
+
+  const DepthReading& reading = depthSensor.reading();
+  logMessage(LogLevel::WARN,
+             "DEPTH",
+             "MS5837 %s: pressure=%.1fPa temperature=%.2fC quality=0x%04x",
+             event == DepthServiceEvent::SURFACE_ZERO_FAILED ? "surface zero failed"
+                                                              : "sample invalid",
+             reading.pressurePa, reading.temperatureC, unsigned(reading.qualityFlags));
+  ++sensorErrors;
+  depthReady = false;
+  if (event == DepthServiceEvent::SURFACE_ZERO_FAILED) recordSurfaceZero();
 }
 
 void serviceDepthZero() {
   if (!zeroRequested.exchange(false)) return;
-  logMessage(LogLevel::INFO, "DEPTH", "Surface zero requested; taking a fresh conversion");
-  servicePpg();
-  const bool started = depthSensor.startDive();
-  servicePpg();
-  depthReady = depthSensor.ready();
-  if (started) {
-    logMessage(LogLevel::INFO, "DEPTH", "Surface zero=%.1fPa; sensor must be at the water surface",
-               depthSensor.reading().surfacePressurePa);
-  } else {
-    logMessage(LogLevel::WARN, "DEPTH", "Surface zero failed: no valid pressure conversion");
+  if (depthReady && depthSensor.startDive()) {
+    logMessage(LogLevel::INFO, "DEPTH",
+               "Surface zero requested; fresh nonblocking conversion queued");
+    return;
   }
+
+  logMessage(LogLevel::WARN, "DEPTH",
+             "Surface zero failed: depth sensor is not ready");
   recordSurfaceZero();
 }

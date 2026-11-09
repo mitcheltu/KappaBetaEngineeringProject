@@ -15,10 +15,11 @@ small serial-driven example.
 - Library: BlueRobotics MS5837 Library 1.1.1
 
 The pinned library's `read()` path performs blocking D1/D2 conversions of about
-40 ms total. The configured 200 ms sample interval therefore targets about
-5 Hz; this implementation does not claim 20 Hz. The library also does not
-return individual conversion-transfer status, so the module combines I²C ACK
-checks before and after a read with pressure and temperature range checks.
+40 ms total and does not expose its calibration or conversion primitives. This
+module schedules the same MS5837-30BA commands itself, with a 20 ms deadline
+for each conversion, so the configured 200 ms sample interval retains the
+initial 5 Hz cadence without blocking the loop. Every command, read request,
+and returned byte count is checked before a sample can be published.
 
 ## Running the example
 
@@ -44,13 +45,15 @@ DepthSensor sensor(DepthSensorConfig{});
 sensor.begin(Wire, 0x76);
 sensor.startDive();
 
-if (sensor.due(nowUs)) sensor.update();
+sensor.service(); // Call on every loop pass; it never waits for conversion.
 const DepthReading& reading = sensor.reading();
 ```
 
-`DepthSensor` owns the MS5837 driver, surface-pressure baseline, filter state,
-sample timing, and fixed-size histories. It does not own user profile data,
-risk scoring, or sensor-fusion weights.
+`DepthSensor` owns the MS5837 protocol, surface-pressure baseline, filter state,
+sample timing, and fixed-size histories. Call `service()` on every loop pass;
+it advances one of the idle, pressure-conversion, or temperature-conversion
+states without waiting. It does not own user profile data, risk scoring, or
+sensor-fusion weights.
 
 Each `DepthReading` preserves:
 
@@ -63,12 +66,14 @@ Each `DepthReading` preserves:
 
 The processing sequence is:
 
-1. Read the MS5837 and use its temperature-compensated pressure result.
-2. Convert pressure to relative depth using
+1. Start a pressure conversion, then a temperature conversion, each with a
+   20 ms deadline; neither conversion blocks the loop.
+2. Read both ADC results and apply the MS5837-30BA temperature compensation.
+3. Convert pressure to relative depth using
    `(pressure - surfacePressure) / (waterDensity * 9.80665)`.
-3. Reject isolated depth spikes with a Hampel filter.
-4. Smooth accepted depth samples with an EMA.
-5. Estimate rate with least-squares regression over timestamped filtered samples
+4. Reject isolated depth spikes with a Hampel filter.
+5. Smooth accepted depth samples with an EMA.
+6. Estimate rate with least-squares regression over timestamped filtered samples
    in the configured 2–3 second window.
 
 Rejected samples retain their raw pressure/depth and receive

@@ -69,12 +69,9 @@ void setup() {
 
 void loop() {
   static uint32_t lastImu = 0, lastTelemetry = 0, lastRetry = 0;
-  serviceSerial(); servicePpg(); serviceDepthZero(); serviceHistory();
+  serviceSerial(); servicePpg(); serviceDepthZero(); serviceDepth(); serviceHistory();
   uint32_t now = millis();
   if (now - lastImu >= Config::IMU_PERIOD_MS) { lastImu = now; sampleImu(); }
-  if (depthSensor.due(static_cast<uint64_t>(now) * 1000ULL)) {
-    servicePpg(); sampleDepth(); servicePpg();
-  }
   now = millis();
   if (now - lastRetry >= 5000) {
     lastRetry = now;

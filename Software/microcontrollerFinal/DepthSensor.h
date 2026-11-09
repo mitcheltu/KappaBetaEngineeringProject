@@ -27,7 +27,7 @@ constexpr DepthQualityFlags STOPPED = 1u << 7;
 }
 
 struct DepthSensorConfig {
-  uint32_t samplePeriodMs = 200; // PROVISIONAL/TBD; official library is blocking.
+  uint32_t samplePeriodMs = 200; // PROVISIONAL/TBD; 5 Hz initial cadence.
   float waterDensityKgM3 = 1000.0f; // PROVISIONAL/TBD freshwater/pool density.
 
   // These filter values are implementation defaults only, not safety-calibrated.
@@ -61,6 +61,14 @@ struct DepthReading {
                                     DepthQuality::RATE_UNAVAILABLE;
 };
 
+enum class DepthServiceEvent : uint8_t {
+  NONE,
+  SAMPLE_PUBLISHED,
+  SURFACE_ZERO_PUBLISHED,
+  CONVERSION_FAILED,
+  SURFACE_ZERO_FAILED,
+};
+
 class DepthSensor {
  public:
   explicit DepthSensor(const DepthSensorConfig& config = DepthSensorConfig{});
@@ -70,12 +78,14 @@ class DepthSensor {
   // for call-site consistency and identify the bus/address being configured.
   bool begin(TwoWire& bus, uint8_t address);
 
-  // Establishes a fresh surface-pressure baseline and clears dive-only state.
+  // Queues a fresh surface-pressure conversion and clears dive-only state.
   bool startDive();
   void stopDive();
 
-  // Scheduling is owned by the object; update() performs one sensor transaction
-  // only when the integration layer determines the object is due.
+  // Runs one nonblocking state-machine step. Call on every loop pass.
+  DepthServiceEvent service();
+
+  // Retained for standalone callers while they migrate to service().
   bool due(uint64_t nowUs) const;
   bool update();
 
@@ -89,6 +99,18 @@ class DepthSensor {
 
  private:
   static constexpr size_t HISTORY_CAPACITY = 64;
+  static constexpr uint64_t CONVERSION_TIME_US = 20000;
+
+  enum class ConversionState : uint8_t {
+    IDLE,
+    WAITING_PRESSURE,
+    WAITING_TEMPERATURE,
+  };
+
+  enum class ConversionKind : uint8_t {
+    NORMAL_SAMPLE,
+    SURFACE_ZERO,
+  };
 
   struct HistorySample {
     uint64_t timestampUs = 0;
@@ -101,24 +123,38 @@ class DepthSensor {
                          float temperatureC, DepthQualityFlags flags);
   void resetDiveState();
   bool sensorPresent() const;
-  bool readPressure(float& pressurePa, float& temperatureC,
-                    DepthQualityFlags& failureFlags);
+  bool writeCommand(uint8_t command);
+  bool readAdc(uint32_t& value);
+  bool readCalibrationWord(uint8_t index, uint16_t& value);
+  bool loadCalibration();
+  uint8_t crc4(uint16_t prom[8]) const;
+  bool startConversion(uint8_t command, uint64_t timestampUs);
+  bool compensate(uint32_t pressureAdc, uint32_t temperatureAdc,
+                  float& pressurePa, float& temperatureC) const;
+  DepthServiceEvent failConversion(uint64_t timestampUs,
+                                   DepthQualityFlags flags);
   void processSample(uint64_t timestampUs, float pressurePa, float temperatureC);
   void updateDepthRate(uint64_t timestampUs);
   bool isHampelOutlier(float depthM, bool& warming);
   void appendRawHistory(float depthM, uint64_t timestampUs);
   void appendFilteredHistory(float depthM, uint64_t timestampUs);
 
-  MS5837 driver_;
   DepthSensorConfig config_;
   TwoWire* bus_ = nullptr;
   uint8_t address_ = 0;
+  uint16_t calibration_[8] = {};
   bool ready_ = false;
   bool diveActive_ = false;
+  bool zeroPending_ = false;
+  ConversionState conversionState_ = ConversionState::IDLE;
+  ConversionKind conversionKind_ = ConversionKind::NORMAL_SAMPLE;
+  uint64_t conversionDeadlineUs_ = 0;
+  uint32_t pressureAdc_ = 0;
   float surfacePressurePa_ = NAN;
   float previousFilteredDepthM_ = NAN;
   bool filteredDepthValid_ = false;
   uint64_t lastSampleUs_ = 0;
+  bool sampleClockValid_ = false;
   uint64_t lastValidSampleUs_ = 0;
   DepthReading reading_{};
   HistorySample rawHistory_[HISTORY_CAPACITY]{};

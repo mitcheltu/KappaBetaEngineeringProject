@@ -1,7 +1,6 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <cstring>
-#include <esp_timer.h>
 
 #include "DepthSensor.h"
 
@@ -29,8 +28,9 @@ void serviceSerial() {
     }
     command[length] = '\0';
     if (strcmp(command, "start dive") == 0) {
-      Serial.println(depthSensor.startDive() ? "Dive started; surface baseline captured."
-                                             : "Dive start failed; depth remains invalid.");
+      Serial.println(depthSensor.startDive()
+                         ? "Surface zero queued; waiting for a fresh conversion."
+                         : "Dive start failed; depth remains invalid.");
     } else if (strcmp(command, "stop dive") == 0) {
       depthSensor.stopDive();
       Serial.println("Dive stopped; depth and rate invalidated.");
@@ -52,17 +52,17 @@ void setup() {
 
 void loop() {
   serviceSerial();
-  const uint64_t nowUs = static_cast<uint64_t>(esp_timer_get_time());
-  if (depthSensor.due(nowUs)) {
-    if (depthSensor.update()) {
-      const DepthReading& reading = depthSensor.reading();
-      Serial.printf("P=%.1f Pa T=%.2f C raw=%.3f m filtered=%.3f m rate=%.3f m/s quality=0x%04x\n",
-                    reading.pressurePa, reading.temperatureC, reading.rawDepthM,
-                    reading.filteredDepthM, reading.depthRateMps,
-                    unsigned(reading.qualityFlags));
-    } else {
-      Serial.println("Depth sample invalid; inspect quality flags.");
-    }
+  const DepthServiceEvent event = depthSensor.service();
+  if (event == DepthServiceEvent::SAMPLE_PUBLISHED ||
+      event == DepthServiceEvent::SURFACE_ZERO_PUBLISHED) {
+    const DepthReading& reading = depthSensor.reading();
+    Serial.printf("P=%.1f Pa T=%.2f C raw=%.3f m filtered=%.3f m rate=%.3f m/s quality=0x%04x\n",
+                  reading.pressurePa, reading.temperatureC, reading.rawDepthM,
+                  reading.filteredDepthM, reading.depthRateMps,
+                  unsigned(reading.qualityFlags));
+  } else if (event == DepthServiceEvent::CONVERSION_FAILED ||
+             event == DepthServiceEvent::SURFACE_ZERO_FAILED) {
+    Serial.println("Depth conversion invalid; inspect quality flags.");
   }
   delay(1);
 }

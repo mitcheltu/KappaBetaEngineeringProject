@@ -59,6 +59,30 @@ polling without changing the window or evaluator interfaces.
 The IMU object supports stationary gyro calibration. Hold the device still and
 send `calibrate gyro`; send `clear calibration` to remove runtime biases.
 
+## Nonblocking depth sampling
+
+The MS5837-30BA depth path keeps the initial cadence at 5 Hz
+(`DEPTH_SAMPLE_PERIOD_MS = 200`). `DepthSensor::service()` is called on every
+pass through `loop()` and advances three states: idle, waiting for the 20 ms
+pressure-conversion deadline, and waiting for the 20 ms temperature-conversion
+deadline. It returns immediately between conversion steps, so `servicePpg()`
+and the 50 ms IMU poll continue to run while the MS5837 is converting.
+
+The official BlueRobotics MS5837 v1.1.1 `read()` method does not expose its
+conversion or calibration primitives. The depth module therefore schedules the
+same D1/D2 commands directly, validates every I²C transfer and PROM CRC, and
+uses the library's MS5837-30BA compensation formulas before publishing a
+sample. Failed or partial conversions never replace the current valid sample.
+
+The `z` command queues a fresh pressure/temperature conversion through the
+same state machine. A surface baseline is changed only after that conversion
+passes the validity checks. Depth filtering, rate estimation, and BLE packet
+formats are unchanged.
+
+Host-side strict compilation and a fake-I²C state-machine test pass. Full ESP32
+compilation requires the pinned ESP32 core and libraries plus `arduino-cli`; an
+ESP32 board has not yet been used to measure the actual 50 ms IMU cadence.
+
 ## Temporary blue LED countdown
 
 SOS now turns the onboard RGB LED **solid blue for 10 seconds** instead of

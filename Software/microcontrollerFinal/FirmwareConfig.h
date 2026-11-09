@@ -18,10 +18,10 @@ constexpr int PUMP_GATE = 16; // Former SOL_EN -> R3 -> Q2; active HIGH.
 constexpr int BATTERY_ADC = 1; // ADC1, midpoint of R5/R6 (100k/100k).
 constexpr uint8_t IMU_ADDRESS = 0x68, PPG_ADDRESS = 0x57, DEPTH_ADDRESS = 0x76;
 constexpr uint32_t I2C_HZ = 400000;
-// The official BlueRobotics MS5837 1.1.1 library is pinned by libraries.txt.
-// Its read() path is blocking and performs two conversions, so this remains a
-// provisional 5 Hz-oriented schedule; the implementation must not claim 20 Hz.
-constexpr uint32_t DEPTH_SAMPLE_PERIOD_MS = 200; // PROVISIONAL/TBD; library-limited.
+// The official BlueRobotics MS5837 1.1.1 protocol is pinned by libraries.txt.
+// Keep the initial depth cadence at 5 Hz while conversions are serviced
+// asynchronously between IMU and PPG work.
+constexpr uint32_t DEPTH_SAMPLE_PERIOD_MS = 200; // PROVISIONAL/TBD; initial 5 Hz.
 constexpr float DEPTH_WATER_DENSITY_KG_M3 = 1000.0f; // PROVISIONAL/TBD freshwater.
 constexpr float FLUID_DENSITY_KG_M3 = DEPTH_WATER_DENSITY_KG_M3; // Legacy alias.
 constexpr float BATTERY_DIVIDER_RATIO = 2.0f; // R5 = R6 = 100 kohm.

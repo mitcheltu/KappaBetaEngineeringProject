@@ -63,7 +63,7 @@ void initializeDepth();
 void sampleImu();
 bool calibrateImuGyro();
 void clearImuCalibration();
-void sampleDepth();
+void serviceDepth();
 void serviceDepthZero();
 void controlTask(void*);
 void initializeBle();
