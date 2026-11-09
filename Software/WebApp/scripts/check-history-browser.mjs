@@ -146,7 +146,7 @@ try {
         if (op === 2) next();
         if (op === 3) { live = true; status(5, cursor, target, 131072); }
       };
-      const device = new EventTarget(); device.name = 'KappaBeta-RevF'; device.gatt = { connected: false, async connect() { connections.connects++; this.connected = true; live = false; return this; }, disconnect() { const was = this.connected; this.connected = false; if (was) { connections.disconnects++; device.dispatchEvent(new Event('gattserverdisconnected')); } }, async getPrimaryService() { return { getCharacteristic: async uuid => chars[uuid] }; } };
+      const device = new EventTarget(); device.name = 'KappeBetaWearable'; device.gatt = { connected: false, async connect() { connections.connects++; this.connected = true; live = false; return this; }, disconnect() { const was = this.connected; this.connected = false; if (was) { connections.disconnects++; device.dispatchEvent(new Event('gattserverdisconnected')); } }, async getPrimaryService() { return { getCharacteristic: async uuid => chars[uuid] }; } };
       // Keep readings fresh while traversing tabs and exporting; stale behavior is
       // covered separately by the live connection service tests.
       setInterval(() => {

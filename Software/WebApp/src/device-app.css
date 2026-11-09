@@ -1474,6 +1474,12 @@ h3 {
   .live-footer .button { width: 100%; min-width: 0; padding: 12px 8px; }
 }
 .header-actions { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.connection-group { padding: 20px; border: 1px solid var(--line); background: var(--surface); }
+.connection-group .device-card { flex-direction: column; align-items: stretch; gap: 16px; padding: 0; }
+.connection-group .device-card-copy { gap: 8px; }
+.device-card-copy h2 { font: 700 clamp(28px, 2.6vw, 38px)/1.1 var(--display); overflow-wrap: anywhere; }
+.connection-group .device-card .button { width: 100%; max-width: none; }
+.connection-group .connection-feedback { color: var(--muted); }
 .theme-toggle, .pause-control {
   display: inline-flex; align-items: center; justify-content: center; gap: 10px;
   min-height: 44px; padding: 10px 14px; background: transparent;
@@ -1513,8 +1519,15 @@ button, a, input, [tabindex] { scroll-margin: 8px; }
 .section-title .help-button { flex-shrink: 0; }
 .setting-card > :not(.sr-only), .connect-controls > *, .live-panel > .page-heading,
 .settings-panel > .page-heading, .settings-footer, .live-footer { flex-shrink: 0; }
-.settings-grid { min-height: min-content; }
-.setting-card { min-width: 0; }
+.settings-grid { display: flex; min-height: min-content; }
+.setting-card { display: none; min-width: 0; width: 100%; }
+.setting-card.active-setting { display: flex; }
+.setting-switch { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--control-border); }
+.setting-switch button { background: transparent; border: 0; padding: 12px 8px; font-size: 18px; min-height: 48px; }
+.setting-switch button[aria-pressed=true] { background: var(--ink); color: var(--paper); }
+@media(max-width:480px) {
+  .setting-switch button { font-size: 16px; padding-inline: 4px; }
+}
 .sensor-content { display: grid; min-height: 320px; flex: 1 0 auto; }
 .sensor-content > div { height: auto; min-height: 100%; }
 .state-label { white-space: normal; }

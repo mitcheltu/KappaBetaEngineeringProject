@@ -4,6 +4,7 @@ import { createLiveConnectionService, type LiveStatus } from './services/liveCon
 import { createIndexedDbHistoryStore } from './services/historyStore';
 import { HistoryView } from './components/HistoryView.web';
 import { useTheme } from './useTheme';
+import { defaultPreferences, parsePreferences, preferenceKey, type Preferences } from './services/preferences';
 import './device-app.css';
 
 const oceanImage = require('../assets/ocean-background.png');
@@ -11,14 +12,9 @@ const oceanStyle = { position: 'absolute' as const, inset: 0, width: '100%' as c
 
 type Tab = 'connect' | 'settings' | 'live';
 type Sensor = 'Depth' | 'Vitals' | 'Motion' | 'Device' | 'History';
-type Preferences = { heartRate: number; maxDepth: number };
-const preferenceKey = 'kappa-beta.preferences.v1';
 function readPreferences(): Preferences | null {
-  try {
-    const p = JSON.parse(localStorage.getItem(preferenceKey) || 'null');
-    return p && Number.isFinite(p.heartRate) && p.heartRate >= 20 && p.heartRate <= 140 && Number.isInteger(p.heartRate)
-      && Number.isFinite(p.maxDepth) && p.maxDepth >= 0.1 && p.maxDepth <= 10 ? p : null;
-  } catch { return null; }
+  try { return parsePreferences(localStorage.getItem(preferenceKey)); }
+  catch { return null; }
 }
 const statusLabels: Record<LiveStatus, string> = {
   disconnected: 'Not connected', selecting: 'Choose your device', connecting: 'Connecting…', syncing: 'Connected · syncing',
@@ -30,8 +26,10 @@ const sensors: Sensor[] = ['Depth', 'Vitals', 'Motion', 'Device', 'History'];
 const helpContent = {
   heartRate: { title: 'Resting heart rate', paragraphs: ['Your usual heart rate at rest, in beats per minute. This is a baseline you enter, not a live sensor reading.', 'Saved only in this browser. The wearable does not receive or enforce this setting, and the input range is not a validated device operating limit.'] },
   maxDepth: { title: 'Estimated maximum depth', paragraphs: ['The maximum depth you intend to set, in meters. The intended device behavior is to trigger beyond this depth.', 'Current firmware does not receive or enforce this setting. It is saved only in this browser, and the input range is not a validated device operating limit.'] },
-  settings: { title: 'Saving your settings', paragraphs: ['Save to browser keeps your heart-rate baseline and maximum depth on this browser for your next visit.', 'Current firmware does not accept these settings. Saving here does not change the wearable’s trigger conditions.'] },
-  connection: { title: 'Connect your wearable', paragraphs: ['Use Chrome on Windows, macOS or Android over HTTPS or localhost. Select KappaBeta-RevF in the Bluetooth picker. iPhone Safari cannot connect through this Web Bluetooth interface.', 'Saved history downloads before live readings begin. Keep the sensor at the water surface when zeroing. This app does not run automatic drowning detection or remotely operate the pump.'] },
+  weightKg: { title: 'Weight', paragraphs: ['Your body weight in kilograms. Adjust in 0.1 kg steps.', 'This is a user-entered profile setting, saved only in this browser. It is not sent to the wearable or used to control its triggers.'] },
+  heightCm: { title: 'Height', paragraphs: ['Your height in centimeters. Adjust in 1 cm steps.', 'This is a user-entered profile setting, saved only in this browser. It is not sent to the wearable or used to control its triggers.'] },
+  settings: { title: 'Saving your settings', paragraphs: ['Save to browser keeps your heart-rate baseline, maximum depth, weight and height on this browser for your next visit.', 'Current firmware does not accept these settings. Saving here does not change the wearable’s trigger conditions.'] },
+  connection: { title: 'Connect your wearable', paragraphs: ['Use Chrome on Windows, macOS or Android over HTTPS or localhost. Select your wearable in the Bluetooth picker. iPhone Safari cannot connect through this Web Bluetooth interface.', 'Saved history downloads before live readings begin. Keep the sensor at the water surface when zeroing. This app does not run automatic drowning detection or remotely operate the pump.'] },
   Depth: { title: 'About depth readings', paragraphs: ['Depth is calculated from water pressure relative to your surface baseline. In Connect, hold the sensor at the water surface and choose Zero depth at surface.', 'Pressure is shown in pascals and water temperature in degrees Celsius. A dash means no current valid reading is available.'] },
   Vitals: { title: 'About vital readings', paragraphs: ['Heart rate and oxygen estimates come from the wearable’s optical sensor. Both require a valid optical signal.', 'Red and infrared are raw optical readings. A dash means no current valid reading is available.'] },
   Motion: { title: 'About motion readings', paragraphs: ['X, Y and Z are the sensor’s three measurement axes. Acceleration is shown in g and includes gravity. Rotation is shown in degrees per second.', 'A dash means no current valid reading is available.'] },
@@ -51,8 +49,8 @@ export default function DeviceApp() {
   const [tab, setTab] = useState<Tab>('connect');
   const [sensor, setSensor] = useState<Sensor>('Depth');
   const [saved, setSaved] = useState(readPreferences);
-  const [draft, setDraft] = useState<Preferences>(() => saved ?? { heartRate: 70, maxDepth: 2 });
-  const [setting, setSetting] = useState<'heartRate' | 'maxDepth'>('heartRate');
+  const [draft, setDraft] = useState<Preferences>(() => saved ?? { ...defaultPreferences });
+  const [setting, setSetting] = useState<keyof Preferences>('heartRate');
   const [saveMessage, setSaveMessage] = useState('');
   const [help, setHelp] = useState<keyof typeof helpContent | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -73,7 +71,7 @@ export default function DeviceApp() {
   const ppg = t.ppg && !t.ppg.stale ? t.ppg.data : null;
   const system = t.system && !t.system.stale ? t.system.data : null;
   const stale = Object.values(t).some(value => value?.stale);
-  const dirty = !saved || draft.heartRate !== saved.heartRate || draft.maxDepth !== saved.maxDepth;
+  const dirty = !saved || draft.heartRate !== saved.heartRate || draft.maxDepth !== saved.maxDepth || draft.weightKg !== saved.weightKg || draft.heightCm !== saved.heightCm;
   const history = snapshot.history;
   const validBaseline = connected && depth?.depthM != null;
 
@@ -127,14 +125,15 @@ export default function DeviceApp() {
         <div className="connect-controls">
           <div className="section-title"><h1>Connect your device</h1><button className="help-button" aria-label="Bluetooth connection help" onClick={() => setHelp('connection')}>?</button></div>
           <div className="connection-group"><div className="device-card">
-            <div className="device-card-copy"><span className="eyebrow">ESP32 WEARABLE</span><strong>{snapshot.deviceName || 'KappaBeta-RevF'}</strong></div>
-            <button className={linked || busy ? 'button outline' : 'button primary'} onClick={linked || busy ? service.disconnect : () => { void service.connect(); }}>
-              {busy ? 'Cancel' : connected ? 'Disconnect' : snapshot.status === 'lost' ? 'Reconnect' : 'Connect device'}
+            <div className="device-card-copy"><h2>KappeBetaWearable</h2>
+              <div id="connection-instruction" className="connection-feedback" role="status">
+                {snapshot.message || (snapshot.status === 'syncing' ? `Importing history${history ? ` · ${history.recordCount.toLocaleString()} records` : ''}.`
+                  : connected ? 'Connected. Ready for a surface baseline.' : 'Turn on your wearable and keep it nearby.')}
+              </div>
+            </div>
+            <button aria-describedby="connection-instruction" className={linked || busy ? 'button outline' : 'button primary'} onClick={linked || busy ? service.disconnect : () => { void service.connect(); }}>
+              {busy ? 'Cancel' : connected ? 'Disconnect' : snapshot.status === 'lost' ? 'Reconnect' : 'Connect wearable'}
             </button>
-          </div>
-          <div className="connection-feedback" role="status">
-            {snapshot.message || (snapshot.status === 'syncing' ? `Importing history${history ? ` · ${history.recordCount.toLocaleString()} records` : ''}.`
-              : connected ? 'Connected. Ready for a surface baseline.' : 'Power on your wearable and keep it nearby.')}
           </div></div>
           <div className="baseline-card">
             <div className="baseline-heading"><h2>Depth from surface</h2><span className="state-label">{validBaseline ? 'Available' : 'Not set'}</span></div>
@@ -148,13 +147,15 @@ export default function DeviceApp() {
 
       <section id="panel-settings" className="tab-panel settings-panel" role="tabpanel" aria-labelledby="tab-settings" tabIndex={0} hidden={tab !== 'settings'}>
         <div className="page-heading"><div><span className="eyebrow">PERSONAL SETUP</span><h1>Your settings.</h1></div><span className="state-label">{dirty ? 'Unsaved changes' : 'Saved on this browser'}</span></div>
-        <div className="setting-switch" role="group" aria-label="Choose setting"><button aria-pressed={setting === 'heartRate'} onClick={() => setSetting('heartRate')}>Heart rate</button><button aria-pressed={setting === 'maxDepth'} onClick={() => setSetting('maxDepth')}>Max. depth</button></div>
+        <div className="setting-switch" role="group" aria-label="Choose setting"><button aria-pressed={setting === 'heartRate'} onClick={() => setSetting('heartRate')}>Heart rate</button><button aria-pressed={setting === 'maxDepth'} onClick={() => setSetting('maxDepth')}>Max. depth</button><button aria-pressed={setting === 'weightKg'} onClick={() => setSetting('weightKg')}>Weight</button><button aria-pressed={setting === 'heightCm'} onClick={() => setSetting('heightCm')}>Height</button></div>
         <div className="settings-grid">
           <SettingCard name="Resting heart rate" unit="bpm" value={draft.heartRate} min={20} max={140} step={1} active={setting === 'heartRate'} onHelp={() => setHelp('heartRate')} onChange={v => change('heartRate', v)} />
           <SettingCard name="Estimated maximum depth" unit="m" value={draft.maxDepth} min={0.1} max={10} step={0.1} active={setting === 'maxDepth'} onHelp={() => setHelp('maxDepth')} onChange={v => change('maxDepth', v)} />
+          <SettingCard name="Weight" unit="kg" value={draft.weightKg} min={20} max={300} step={0.1} active={setting === 'weightKg'} onHelp={() => setHelp('weightKg')} onChange={v => change('weightKg', v)} />
+          <SettingCard name="Height" unit="cm" value={draft.heightCm} min={80} max={250} step={1} active={setting === 'heightCm'} onHelp={() => setHelp('heightCm')} onChange={v => change('heightCm', v)} />
         </div>
         <div className="settings-footer"><div className="save-context"><div className="save-scope"><span>Browser only · not sent to wearable</span><button className="help-button" aria-label="About saving settings" onClick={() => setHelp('settings')}>?</button></div><span className="save-feedback" role="status">{saveMessage}</span></div>
-          <div className="setting-actions"><button className="button outline" disabled={!dirty} onClick={() => { setDraft(saved ?? { heartRate: 70, maxDepth: 2 }); setSaveMessage('Edits reset.'); }}>Reset edits</button><button className="button primary" disabled={!dirty} onClick={save}>Save to browser</button></div>
+          <div className="setting-actions"><button className="button outline" disabled={!dirty} onClick={() => { setDraft(saved ?? { ...defaultPreferences }); setSaveMessage('Edits reset.'); }}>Reset edits</button><button className="button primary" disabled={!dirty} onClick={save}>Save to browser</button></div>
         </div>
       </section>
 
@@ -189,7 +190,7 @@ function SettingCard({ name, unit, value, min, max, step, active, onHelp, onChan
     <div className="section-title"><h2>{name}</h2><button className="help-button" onClick={onHelp} aria-label={`About ${name.toLowerCase()}`}>?</button></div>
     <div className="setting-value"><output htmlFor={id} aria-live="off">{value.toFixed(step < 1 ? 1 : 0)}</output><span>{unit}</span></div>
     <p id={`${id}-description`} className="sr-only">User-entered setting, saved only in this browser. Not applied to the wearable. Use the slider or the decrease and increase buttons.</p>
-    <div className="slider-controls"><button aria-label={`Decrease ${name.toLowerCase()}`} disabled={value <= min} onClick={() => change(value - step)}>−</button><input id={id} type="range" aria-label={name} aria-describedby={`${id}-description`} aria-valuetext={`${value.toFixed(step < 1 ? 1 : 0)} ${unit === 'bpm' ? 'beats per minute' : 'meters'}`} min={min} max={max} step={step} value={value} onChange={e => change(Number(e.target.value))} style={{ '--range-fill': `${(value - min) / (max - min) * 100}%` } as React.CSSProperties} /><button aria-label={`Increase ${name.toLowerCase()}`} disabled={value >= max} onClick={() => change(value + step)}>+</button></div>
+    <div className="slider-controls"><button aria-label={`Decrease ${name.toLowerCase()}`} disabled={value <= min} onClick={() => change(value - step)}>−</button><input id={id} type="range" aria-label={name} aria-describedby={`${id}-description`} aria-valuetext={`${value.toFixed(step < 1 ? 1 : 0)} ${unit === 'bpm' ? 'beats per minute' : unit === 'kg' ? 'kilograms' : unit === 'cm' ? 'centimeters' : 'meters'}`} min={min} max={max} step={step} value={value} onChange={e => change(Number(e.target.value))} style={{ '--range-fill': `${(value - min) / (max - min) * 100}%` } as React.CSSProperties} /><button aria-label={`Increase ${name.toLowerCase()}`} disabled={value >= max} onClick={() => change(value + step)}>+</button></div>
     <div className="range-labels"><span>{min} {unit}</span><span>{max} {unit}</span></div>
   </article>;
 }

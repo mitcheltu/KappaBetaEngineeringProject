@@ -39,7 +39,7 @@ constexpr uint32_t HISTORY_BYTES = 4 * 1024 * 1024;
 constexpr uint32_t ML_WORKSPACE_BYTES = 1024 * 1024; // Two future model workspaces.
 constexpr uint32_t PSRAM_HEADROOM_BYTES = 1024 * 1024;
 constexpr uint32_t IMU_PERIOD_MS = 20, DEPTH_PERIOD_MS = 200;
-constexpr char DEVICE_NAME[] = "KappaBeta-RevF";
+constexpr char DEVICE_NAME[] = "KappeBetaWearable";
 constexpr char SERVICE_UUID[] = "e81b6200-7e57-4d8e-b6f4-889c1d4e8270";
 constexpr char DEPTH_UUID[] = "e81b6210-7e57-4d8e-b6f4-889c1d4e8270";
 constexpr char IMU_UUID[] = "e81b6211-7e57-4d8e-b6f4-889c1d4e8270";
