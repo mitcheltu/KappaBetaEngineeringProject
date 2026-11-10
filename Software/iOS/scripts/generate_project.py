@@ -31,6 +31,9 @@ def configurations(name, common):
         settings = dict(common)
         settings.update({"SWIFT_OPTIMIZATION_LEVEL": quote("-Onone" if mode == "Debug" else "-O"),
                          "DEBUG_INFORMATION_FORMAT": quote("dwarf" if mode == "Debug" else "dwarf-with-dsym")})
+        # Match SwiftPM's Debug architecture for the selected device/simulator.
+        # Otherwise the app can request an Intel module from an arm64-only package.
+        settings["ONLY_ACTIVE_ARCH"] = "YES" if mode == "Debug" else "NO"
         if mode == "Debug":
             settings.update({"ENABLE_TESTABILITY": "YES", "SWIFT_ACTIVE_COMPILATION_CONDITIONS": quote("DEBUG $(inherited)")})
         body = "{ " + " ".join(f"{k} = {v};" for k, v in settings.items()) + " }"

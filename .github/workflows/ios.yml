@@ -39,7 +39,38 @@ jobs:
           xcrun simctl list devices available -j > "$RUNNER_TEMP/simulators.json"
           python3 -c 'import json, os; d=json.load(open(os.environ["RUNNER_TEMP"]+"/simulators.json")); print("SIMULATOR_ID="+next(v["udid"] for k, a in d["devices"].items() if "iOS" in k for v in a if v["name"].startswith("iPhone")))' >> "$GITHUB_ENV"
       - name: Build app and test transfer lifecycle
+        id: native_tests
         run: |
+          set -o pipefail
           xcodebuild test -project KappaBeta.xcodeproj -scheme KappaBeta \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
-            -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO
+            -derivedDataPath DerivedData \
+            -resultBundlePath "$RUNNER_TEMP/KappaBetaTests.xcresult" \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$RUNNER_TEMP/kappa-beta-xcodebuild.log"
+      - name: Summarize Xcode failure
+        if: always() && steps.native_tests.outcome == 'failure'
+        run: |
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          log = pathlib.Path(os.environ['RUNNER_TEMP']) / 'kappa-beta-xcodebuild.log'
+          lines = log.read_text(errors='replace').splitlines() if log.exists() else ['Xcode did not produce a build log.']
+          matches = [i for i, line in enumerate(lines) if re.search(r'error:|Testing failed:|failed \(|Could not cast|TEST FAILED|BUILD FAILED', line, re.I)]
+          selected = sorted({j for i in matches for j in range(max(0, i - 2), min(len(lines), i + 5))})
+          excerpt = '\n'.join(lines[i] for i in selected[:160]) if selected else '\n'.join(lines[-100:])
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
+              summary.write('## Xcode failure details\n\n````text\n' + excerpt + '\n````\n\nDownload the `ios-test-diagnostics` artifact for the complete log and Xcode result bundle.\n')
+          print(excerpt)
+          PY
+      - name: Upload Xcode diagnostics
+        if: always() && steps.native_tests.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-test-diagnostics
+          path: |
+            ${{ runner.temp }}/kappa-beta-xcodebuild.log
+            ${{ runner.temp }}/KappaBetaTests.xcresult
+          if-no-files-found: warn
+          retention-days: 7
