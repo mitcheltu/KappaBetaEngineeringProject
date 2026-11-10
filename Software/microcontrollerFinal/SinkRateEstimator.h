@@ -3,6 +3,9 @@
 #include "DepthSensor.h"
 
 struct SinkRateComparison {
+  uint64_t timestampUs = 0;
+  uint64_t inputStartUs = 0;
+  uint64_t inputEndUs = 0;
   float measuredRateMps = NAN;
   float naturalSinkingSpeedMps = NAN;
   float rateDifferenceMps = NAN;

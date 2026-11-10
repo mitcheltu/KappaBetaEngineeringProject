@@ -1,29 +1,40 @@
 #include "ImuSensor.h"
 
 #include <cmath>
+#include <esp_timer.h>
 
 bool ImuSensor::begin(TwoWire& bus, uint8_t address) {
   invalidateReading();
+  gyroCalibrationActive_ = false;
   ready_ = driver_.begin(bus, address);
   return ready_;
 }
 
 bool ImuSensor::update() {
   float rawAxes[6] = {};
-  if (!ready_ || !driver_.read(rawAxes)) {
+  const bool transferOk = ready_ && driver_.read(rawAxes);
+  const uint64_t sampleTimeUs = static_cast<uint64_t>(esp_timer_get_time());
+  const uint32_t sampleTimeMs = millis();
+  if (!transferOk) {
     ready_ = false;
     invalidateReading();
+    // Retain when the failed sample slot was attempted so the rolling window
+    // can distinguish a timed invalid read from an absent sample.
+    reading_.timestampUs = sampleTimeUs;
+    reading_.timestampMs = sampleTimeMs;
     return false;
   }
 
   applyCalibration(rawAxes);
-  reading_.timestampMs = millis();
+  reading_.timestampUs = sampleTimeUs;
+  reading_.timestampMs = sampleTimeMs;
   reading_.valid = true;
   return true;
 }
 
 bool ImuSensor::calibrateGyro(uint16_t sampleCount, uint16_t intervalMs) {
   if (!ready_ || sampleCount == 0) return false;
+  gyroCalibrationActive_ = false;
 
   double gyroSums[3] = {0.0, 0.0, 0.0};
   for (uint16_t sample = 0; sample < sampleCount; ++sample) {
@@ -51,7 +62,58 @@ bool ImuSensor::calibrateGyro(uint16_t sampleCount, uint16_t intervalMs) {
   return true;
 }
 
+bool ImuSensor::startGyroCalibration(uint16_t sampleCount, uint16_t intervalMs) {
+  if (!ready_ || sampleCount == 0 || intervalMs == 0 || gyroCalibrationActive_)
+    return false;
+
+  gyroCalibrationTarget_ = sampleCount;
+  gyroCalibrationCount_ = 0;
+  gyroCalibrationIntervalUs_ = static_cast<uint64_t>(intervalMs) * 1000ULL;
+  gyroCalibrationNextSampleUs_ = static_cast<uint64_t>(esp_timer_get_time());
+  for (double& sum : gyroCalibrationSums_) sum = 0.0;
+  gyroCalibrationActive_ = true;
+  return true;
+}
+
+ImuCalibrationEvent ImuSensor::serviceGyroCalibration() {
+  if (!gyroCalibrationActive_) return ImuCalibrationEvent::NONE;
+  const uint64_t nowUs = static_cast<uint64_t>(esp_timer_get_time());
+  if (nowUs < gyroCalibrationNextSampleUs_) return ImuCalibrationEvent::NONE;
+
+  float rawAxes[6] = {};
+  if (!ready_ || !driver_.read(rawAxes) || !std::isfinite(rawAxes[3]) ||
+      !std::isfinite(rawAxes[4]) || !std::isfinite(rawAxes[5])) {
+    ready_ = false;
+    gyroCalibrationActive_ = false;
+    invalidateReading();
+    reading_.timestampUs = static_cast<uint64_t>(esp_timer_get_time());
+    reading_.timestampMs = millis();
+    return ImuCalibrationEvent::FAILED;
+  }
+
+  gyroCalibrationSums_[0] += rawAxes[3];
+  gyroCalibrationSums_[1] += rawAxes[4];
+  gyroCalibrationSums_[2] += rawAxes[5];
+  ++gyroCalibrationCount_;
+  if (gyroCalibrationCount_ >= gyroCalibrationTarget_) {
+    for (size_t axis = 0; axis < 3; ++axis) {
+      calibration_.gyroBias[axis] = static_cast<float>(
+          gyroCalibrationSums_[axis] / gyroCalibrationTarget_);
+    }
+    calibration_.gyroBiasValid = true;
+    gyroCalibrationActive_ = false;
+    invalidateReading();
+    return ImuCalibrationEvent::COMPLETE;
+  }
+
+  // Schedule from the actual service time so a delayed task does not issue a
+  // burst of catch-up reads against the same sensor register value.
+  gyroCalibrationNextSampleUs_ = nowUs + gyroCalibrationIntervalUs_;
+  return ImuCalibrationEvent::NONE;
+}
+
 void ImuSensor::clearCalibration() {
+  gyroCalibrationActive_ = false;
   calibration_ = ImuCalibration{};
   invalidateReading();
 }

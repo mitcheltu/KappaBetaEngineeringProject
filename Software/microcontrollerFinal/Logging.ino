@@ -108,8 +108,28 @@ void setLogLevel(int level) {
 }
 
 void logStatus() {
-  const uint32_t now = millis();
-  const DepthReading depth = depthSensor.snapshot(static_cast<uint64_t>(now) * 1000ULL);
+  const uint64_t nowUs = static_cast<uint64_t>(esp_timer_get_time());
+  DepthReading depth{};
+  const bool haveDepth = sensorBuffers.latestDepth(nowUs, depth);
+  const bool depthFresh = haveDepth && nowUs >= depth.timestampUs &&
+      nowUs - depth.timestampUs <
+          static_cast<uint64_t>(Config::DEPTH_STALE_AFTER_MS) * 1000ULL;
+  if (haveDepth && !depthFresh) {
+    depth.qualityFlags |= DepthQuality::STALE;
+    depth.sensorValid = depth.depthValid = depth.rateValid = false;
+  }
+  ImuReading imuReading{};
+  const bool haveImu = sensorBuffers.latestImu(nowUs, imuReading);
+  const bool imuFresh = haveImu && imuReading.valid && nowUs >= imuReading.timestampUs &&
+                        nowUs - imuReading.timestampUs < 300000ULL;
+  PpgReading ppgReading{};
+  const bool havePpg = sensorBuffers.latestPpg(nowUs, ppgReading);
+  const bool ppgFresh = havePpg && ppgReading.valid && nowUs >= ppgReading.timestampUs &&
+                        nowUs - ppgReading.timestampUs < 300000ULL;
+  PpgAnalysis ppgAnalysis{};
+  const bool havePpgAnalysis = sensorBuffers.latestPpgAnalysis(nowUs, ppgAnalysis);
+  const bool ppgAnalysisFresh = havePpgAnalysis && nowUs >= ppgAnalysis.timestampUs &&
+                                nowUs - ppgAnalysis.timestampUs < 2000000ULL;
   const uint32_t battery = batteryDiagnostic.load();
   const uint32_t controls = actuatorState.load();
   if (battery == UINT32_MAX) logReply("BATTERY", "NOT_SAMPLED; SOS blocked until a valid battery sample");
@@ -123,28 +143,38 @@ void logStatus() {
       sosReady.load(), (controls & 64) ? "COUNTDOWN" : (controls & 4) ? "RUNNING" : "IDLE",
       !!(controls & 32), !!(controls & 4), static_cast<unsigned long>(controls >> 8));
   logReply("SENSORS", "I2C=%d BMI270 ready/fresh=%d/%d MS5837=%d/%d MAX30102=%d/%d errors=%lu FIFO_gaps=%lu",
-      busReady, imuReady, imuValid && now - imuMs < 300,
-      depthReady, depth.sensorValid,
-      ppgReady, rawPpgValid && now - ppgMs < 300,
-      static_cast<unsigned long>(sensorErrors), static_cast<unsigned long>(ppgOverflows));
-  logReply("SYSTEM", "heap=%lu min_heap=%lu PSRAM_free=%lu BLE=%s live=%d history_flags=0x%04x log_dropped=%lu truncated=%lu",
+      busReady.load(), imuReady.load(), imuFresh,
+      depthReady.load(), depthFresh && depth.sensorValid,
+      ppgReady.load(), ppgFresh,
+      static_cast<unsigned long>(sensorErrors.load()),
+      static_cast<unsigned long>(ppgOverflows.load()));
+  logReply("SYSTEM", "heap=%lu min_heap=%lu PSRAM_free=%lu BLE=%s live=%d history_flags=0x%04x history_record_drops=%lu log_dropped=%lu truncated=%lu",
       static_cast<unsigned long>(ESP.getFreeHeap()), static_cast<unsigned long>(ESP.getMinFreeHeap()),
       static_cast<unsigned long>(ESP.getFreePsram()),
       historyConnectionHandle() == BLE_HS_CONN_HANDLE_NONE ? "disconnected" : "connected",
-      historyLiveEnabled(), historyFlags(), static_cast<unsigned long>(Diagnostics::dropped.load()),
+      historyLiveEnabled(), historyFlags(), static_cast<unsigned long>(historyRecordDrops.load()),
+      static_cast<unsigned long>(Diagnostics::dropped.load()),
       static_cast<unsigned long>(Diagnostics::truncated.load()));
-  logReply("STACK", "minimum free bytes: control=%lu logger=%lu (0 if task unavailable)",
+  logReply("STACK", "minimum free bytes: control=%lu acquisition=%lu processing=%lu logger=%lu (0 if task unavailable)",
       static_cast<unsigned long>(controlTaskHandle ? uxTaskGetStackHighWaterMark(controlTaskHandle) : 0),
+      static_cast<unsigned long>(acquisitionTaskHandle ? uxTaskGetStackHighWaterMark(acquisitionTaskHandle) : 0),
+      static_cast<unsigned long>(processingTaskHandle ? uxTaskGetStackHighWaterMark(processingTaskHandle) : 0),
       static_cast<unsigned long>(Diagnostics::writerHandle ? uxTaskGetStackHighWaterMark(Diagnostics::writerHandle) : 0));
-  // Values stay in the main-loop owner; the writer task never reads sensor state.
+  const uint64_t imuAgeUs = haveImu && nowUs >= imuReading.timestampUs
+      ? nowUs - imuReading.timestampUs : UINT64_MAX;
   logMessage(LogLevel::DEBUG, "VALUES", "pressure=%.1f Pa temp=%.2f C depth=%.3f m rate=%.3f m/s zero=%.1f Pa quality=0x%04x; IR=%lu red=%lu HR=%ld(valid=%d) SpO2=%ld(valid=%d)",
       depth.pressurePa, depth.temperatureC, depth.filteredDepthM, depth.depthRateMps,
-      depth.surfacePressurePa, unsigned(depth.qualityFlags), static_cast<unsigned long>(irValue),
-      static_cast<unsigned long>(redValue), static_cast<long>(heartRate), hrValid,
-      static_cast<long>(oxygenSaturation), spo2Valid);
-  logMessage(LogLevel::DEBUG, "IMU", "last sample age=%lu ms; axes=[%.3f %.3f %.3f %.3f %.3f %.3f] valid=%d",
-      static_cast<unsigned long>(now - imuMs), imuAxes[0], imuAxes[1], imuAxes[2],
-      imuAxes[3], imuAxes[4], imuAxes[5], imuValid);
+      depth.surfacePressurePa, unsigned(depth.qualityFlags),
+      static_cast<unsigned long>(ppgReading.infrared),
+      static_cast<unsigned long>(ppgReading.red),
+      static_cast<long>(ppgAnalysis.heartRateBpm),
+      ppgAnalysisFresh && ppgAnalysis.heartRateValid,
+      static_cast<long>(ppgAnalysis.oxygenSaturationPercent),
+      ppgAnalysisFresh && ppgAnalysis.oxygenSaturationValid);
+  logMessage(LogLevel::DEBUG, "IMU", "last sample age=%llu us; axes=[%.3f %.3f %.3f %.3f %.3f %.3f] valid=%d",
+      static_cast<unsigned long long>(imuAgeUs),
+      imuReading.acceleration[0], imuReading.acceleration[1], imuReading.acceleration[2],
+      imuReading.gyro[0], imuReading.gyro[1], imuReading.gyro[2], imuFresh);
 }
 
 void serviceDiagnostics(uint32_t now) {

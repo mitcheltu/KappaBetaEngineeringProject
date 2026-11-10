@@ -8,6 +8,7 @@ void Window::clear() {
   sampleCount_ = 0;
   for (size_t sample = 0; sample < IMU_WINDOW_SAMPLES; ++sample) {
     valid_[sample] = false;
+    timestamps_[sample] = 0;
     for (size_t channel = 0; channel < IMU_CHANNELS; ++channel) {
       tensor_[sample][channel] = NAN;
     }
@@ -19,6 +20,7 @@ void Window::push(const ImuReading& reading) {
   if (full()) {
     for (size_t sample = 1; sample < IMU_WINDOW_SAMPLES; ++sample) {
       valid_[sample - 1] = valid_[sample];
+      timestamps_[sample - 1] = timestamps_[sample];
       for (size_t channel = 0; channel < IMU_CHANNELS; ++channel) {
         tensor_[sample - 1][channel] = tensor_[sample][channel];
       }
@@ -28,6 +30,7 @@ void Window::push(const ImuReading& reading) {
     ++sampleCount_;
   }
 
+  timestamps_[destination] = reading.timestampUs;
   const bool valid = reading.valid &&
                      std::isfinite(reading.acceleration[0]) &&
                      std::isfinite(reading.acceleration[1]) &&

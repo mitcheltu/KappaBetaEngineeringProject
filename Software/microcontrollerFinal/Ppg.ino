@@ -30,6 +30,11 @@ void resetPpgWindow() {
   ppgSignalCandidate = ppgSignalReported = -1;
   windowCount = 0;
   rawPpgValid = hrValid = spo2Valid = false;
+  const uint64_t timestampUs = static_cast<uint64_t>(esp_timer_get_time());
+  ppgSensor.invalidateReading(timestampUs);
+  ppgSensor.invalidateAnalysis(timestampUs);
+  sensorBuffers.pushPpg(ppgSensor.reading());
+  sensorBuffers.publishPpgAnalysis(ppgSensor.analysis());
   recordPpgGap();
 }
 
@@ -42,39 +47,55 @@ bool clearPpgFifo() {
 
 void acceptPpgSample(uint32_t red, uint32_t ir, uint64_t sampleTimeUs) {
   redValue = red; irValue = ir; ppgMs = millis(); rawPpgValid = true;
+  ppgSensor.publishReading(red, ir, sampleTimeUs);
+  sensorBuffers.pushPpg(ppgSensor.reading());
   logPpgSignalQuality(red, ir);
   if (ir < Config::PPG_MIN_IR || red == 0 || ir >= Config::PPG_MAX_ADC || red >= Config::PPG_MAX_ADC) {
     if (hrValid || spo2Valid)
       logMessage(LogLevel::DEBUG, "PPG", "HR/SpO2 invalidated by optical signal gate (red=%lu IR=%lu)",
                  static_cast<unsigned long>(red), static_cast<unsigned long>(ir));
     windowCount = 0; hrValid = spo2Valid = false;
+    ppgSensor.invalidateAnalysis(sampleTimeUs);
+    sensorBuffers.publishPpgAnalysis(ppgSensor.analysis());
     recordPpgSample(sampleTimeUs);
     return;
   }
   irWindow[windowCount] = ir;
   redWindow[windowCount++] = red;
-  if (windowCount < 100) { recordPpgSample(sampleTimeUs); return; }
+  if (windowCount < Config::PPG_ANALYSIS_WINDOW_READINGS) {
+    recordPpgSample(sampleTimeUs);
+    return;
+  }
   int8_t validHr = 0, validSpo2 = 0;
   const bool previousHrValid = hrValid, previousSpo2Valid = spo2Valid;
-  maxim_heart_rate_and_oxygen_saturation(irWindow, 100, redWindow,
+  maxim_heart_rate_and_oxygen_saturation(irWindow,
+      Config::PPG_ANALYSIS_WINDOW_READINGS, redWindow,
       &oxygenSaturation, &validSpo2, &heartRate, &validHr);
   hrValid = validHr != 0 && heartRate > 0 && heartRate < 6553;
   spo2Valid = validSpo2 != 0 && oxygenSaturation > 0 && oxygenSaturation <= 100;
+  ppgSensor.publishAnalysis(heartRate, oxygenSaturation, hrValid, spo2Valid,
+                            sampleTimeUs);
+  sensorBuffers.publishPpgAnalysis(ppgSensor.analysis());
   if (hrValid != previousHrValid || spo2Valid != previousSpo2Valid)
     logMessage(LogLevel::DEBUG, "PPG", "Estimate validity HR=%s (%ld BPM), SpO2=%s (%ld%%)",
                hrValid ? "valid" : "invalid", static_cast<long>(heartRate),
                spo2Valid ? "valid" : "invalid", static_cast<long>(oxygenSaturation));
   estimateMs = millis();
   // Four seconds at 25 FIFO samples/s, recomputed each second (Example8).
-  memmove(irWindow, irWindow + 25, 75 * sizeof(uint32_t));
-  memmove(redWindow, redWindow + 25, 75 * sizeof(uint32_t));
-  windowCount = 75;
+  constexpr size_t retainedReadings = Config::PPG_ANALYSIS_WINDOW_READINGS -
+                                      Config::PPG_ANALYSIS_ADVANCE_READINGS;
+  memmove(irWindow, irWindow + Config::PPG_ANALYSIS_ADVANCE_READINGS,
+          retainedReadings * sizeof(uint32_t));
+  memmove(redWindow, redWindow + Config::PPG_ANALYSIS_ADVANCE_READINGS,
+          retainedReadings * sizeof(uint32_t));
+  windowCount = retainedReadings;
   recordPpgSample(sampleTimeUs);
 }
 
 float getPpgRisk() {
   // Placeholder until the PPG risk model and mapping are available.
-  return 0.0f;
+  const PpgRiskResult result = ppgSensor.riskResult();
+  return result.valid ? result.score : NAN;
 }
 
 void servicePpg() {
@@ -114,7 +135,9 @@ void servicePpg() {
     }
     const uint32_t red = ((uint32_t(sample[0]) << 16) | (uint32_t(sample[1]) << 8) | sample[2]) & 0x3ffff;
     const uint32_t ir = ((uint32_t(sample[3]) << 16) | (uint32_t(sample[4]) << 8) | sample[5]) & 0x3ffff;
-    const uint64_t ageUs = uint64_t(pending - 1 - i) * 40000;
+    const uint64_t samplePeriodUs =
+        1000000ULL / Config::PPG_FIFO_READINGS_PER_SECOND;
+    const uint64_t ageUs = uint64_t(pending - 1 - i) * samplePeriodUs;
     acceptPpgSample(red, ir, batchTimeUs > ageUs ? batchTimeUs - ageUs : 0);
   }
 }
@@ -135,7 +158,8 @@ void initializePpg() {
     return;
   }
   // 100 samples/s / 4-sample averaging = 25 Hz expected by Maxim algorithm.
-  ppg.setup(60, 4, 2, 100, 411, 4096); // red + IR, 18-bit, no green LED
+  ppg.setup(60, Config::PPG_SAMPLE_AVERAGING, 2,
+            Config::PPG_INTERNAL_SAMPLE_RATE_HZ, 411, 4096);
   ppg.disableFIFORollover();
   // Configuration writes don't report errors: verify essential registers.
   uint8_t mode = 0, spo2 = 0, fifo = 0, led[2] = {};

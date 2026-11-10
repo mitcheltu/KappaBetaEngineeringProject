@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 
 #include "ImuRiskEvaluator.h"
 #include "ImuSensor.h"
@@ -21,9 +22,16 @@ class Window {
   bool allValid() const;
   size_t sampleCount() const { return sampleCount_; }
   const ImuTensor& tensor() const { return tensor_; }
+  uint64_t startTimestampUs() const {
+    return sampleCount_ == 0 ? 0 : timestamps_[0];
+  }
+  uint64_t endTimestampUs() const {
+    return sampleCount_ == 0 ? 0 : timestamps_[sampleCount_ - 1];
+  }
 
  private:
   ImuTensor tensor_{};
+  uint64_t timestamps_[IMU_WINDOW_SAMPLES]{};
   bool valid_[IMU_WINDOW_SAMPLES]{};
   size_t sampleCount_ = 0;
 };

@@ -49,13 +49,16 @@ SinkRateComparison SinkRateEstimator::compare(float measuredRateMps) const {
 }
 
 SinkRateComparison SinkRateEstimator::compare(const DepthReading& reading) const {
+  SinkRateComparison result = compare(reading.depthRateMps);
+  result.timestampUs = reading.timestampUs;
+  result.inputStartUs = reading.rateWindowStartUs;
+  result.inputEndUs = reading.rateWindowEndUs;
   const bool usableReading = reading.rateValid &&
                              std::isfinite(reading.depthRateMps) &&
                              (reading.qualityFlags & (DepthQuality::SENSOR_INVALID |
                                                       DepthQuality::I2C_ERROR |
                                                       DepthQuality::STALE |
                                                       DepthQuality::OUTLIER_REJECTED)) == 0;
-  SinkRateComparison result = compare(reading.depthRateMps);
   if (!usableReading) {
     result.valid = false;
     result.rateDifferenceMps = NAN;

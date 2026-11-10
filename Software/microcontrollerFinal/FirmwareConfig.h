@@ -47,7 +47,40 @@ constexpr uint32_t HISTORY_BYTES = 4 * 1024 * 1024;
 constexpr uint32_t ML_WORKSPACE_BYTES = 1024 * 1024; // Two future model workspaces.
 constexpr uint32_t PSRAM_HEADROOM_BYTES = 1024 * 1024;
 // Final IMU model input: 20 Hz * 3 seconds = 60 samples.
-constexpr uint32_t IMU_PERIOD_MS = 50, DEPTH_PERIOD_MS = DEPTH_SAMPLE_PERIOD_MS;
+constexpr uint32_t IMU_SAMPLE_RATE_HZ = 20;
+constexpr uint32_t IMU_WINDOW_SECONDS = 3;
+constexpr uint32_t IMU_PERIOD_MS = 1000 / IMU_SAMPLE_RATE_HZ;
+constexpr uint32_t IMU_WINDOW_SAMPLES = IMU_SAMPLE_RATE_HZ * IMU_WINDOW_SECONDS;
+constexpr uint32_t DEPTH_PERIOD_MS = DEPTH_SAMPLE_PERIOD_MS;
+constexpr uint32_t DEPTH_REGRESSION_WINDOW_MS = 1000;
+constexpr uint32_t DEPTH_STALE_AFTER_MS = 1000;
+
+// Initial model/fusion settings. The evaluator reads the configured threshold;
+// the weights are ready for the gated fusion integration step.
+constexpr float CNN_SCORE_THRESHOLD = 0.5f;
+constexpr float DEPTH_FUSION_WEIGHT = 0.5f;
+constexpr float PPG_FUSION_WEIGHT = 0.5f;
+
+// MAX30102 setup: 100 Hz internally with four-sample averaging produces about
+// 25 FIFO readings/second. Risk analysis uses a 100-reading window advanced
+// by 25 readings each time it is evaluated.
+constexpr uint16_t PPG_INTERNAL_SAMPLE_RATE_HZ = 100;
+constexpr uint8_t PPG_SAMPLE_AVERAGING = 4;
+constexpr uint8_t PPG_FIFO_READINGS_PER_SECOND =
+    PPG_INTERNAL_SAMPLE_RATE_HZ / PPG_SAMPLE_AVERAGING;
+constexpr uint16_t PPG_ANALYSIS_WINDOW_READINGS = 100;
+constexpr uint16_t PPG_ANALYSIS_ADVANCE_READINGS = 25;
+constexpr float PPG_DUMMY_RISK_SCORE = 0.0f; // Explicit placeholder; not a sensor-derived score.
+constexpr uint32_t IMU_BUFFER_CAPACITY = IMU_WINDOW_SAMPLES * 2;
+constexpr uint32_t DEPTH_BUFFER_CAPACITY = 32;
+constexpr uint32_t PPG_BUFFER_CAPACITY = PPG_ANALYSIS_WINDOW_READINGS * 2;
+constexpr uint32_t PPG_SERVICE_PERIOD_MS = 5;
+constexpr uint32_t ACQUISITION_TASK_STACK_BYTES = 8192;
+constexpr uint32_t PROCESSING_TASK_STACK_BYTES = 8192;
+constexpr uint8_t ACQUISITION_TASK_PRIORITY = 4;
+constexpr uint8_t PROCESSING_TASK_PRIORITY = 2;
+constexpr uint8_t ACQUISITION_TASK_CORE = 1;
+constexpr uint8_t PROCESSING_TASK_CORE = 0;
 constexpr char DEVICE_NAME[] = "KappaBeta-RevF";
 constexpr char SERVICE_UUID[] = "e81b6200-7e57-4d8e-b6f4-889c1d4e8270";
 constexpr char DEPTH_UUID[] = "e81b6210-7e57-4d8e-b6f4-889c1d4e8270";

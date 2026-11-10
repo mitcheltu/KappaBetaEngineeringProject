@@ -25,6 +25,20 @@ struct QueuedHistoryCommand {
 StaticQueue_t historyQueueDefinition;
 uint8_t historyQueueStorage[8 * sizeof(QueuedHistoryCommand)];
 QueueHandle_t historyQueue = nullptr;
+constexpr size_t HISTORY_RECORD_PAYLOAD_BYTES = 16;
+struct QueuedHistoryRecord {
+  uint8_t kind = 0;
+  uint8_t flags = 0;
+  uint8_t payloadBytes = 0;
+  uint64_t timestampUs = 0;
+  uint8_t payload[HISTORY_RECORD_PAYLOAD_BYTES]{};
+};
+constexpr size_t HISTORY_RECORD_QUEUE_LENGTH = 128;
+StaticQueue_t historyRecordQueueDefinition;
+uint8_t historyRecordQueueStorage[
+    HISTORY_RECORD_QUEUE_LENGTH * sizeof(QueuedHistoryRecord)];
+QueueHandle_t historyRecordQueue = nullptr;
+std::atomic<uint32_t> historyRecordDrops{0};
 // Callbacks count failures; the loop reports them at a bounded rate.
 std::atomic<uint32_t> historyWrongSession{0}, historyMalformedCommands{0}, historyQueueDrops{0};
 
@@ -61,6 +75,11 @@ void updateHistoryIdentity() {
 void initializeHistory() {
   historyQueue = xQueueCreateStatic(8, sizeof(QueuedHistoryCommand), historyQueueStorage, &historyQueueDefinition);
   if (!historyQueue) logMessage(LogLevel::ERROR, "HISTORY", "Command queue allocation failed.");
+  historyRecordQueue = xQueueCreateStatic(HISTORY_RECORD_QUEUE_LENGTH,
+      sizeof(QueuedHistoryRecord), historyRecordQueueStorage,
+      &historyRecordQueueDefinition);
+  if (!historyRecordQueue)
+    logMessage(LogLevel::ERROR, "HISTORY", "Sensor-record queue allocation failed; new history records will be dropped.");
   historyIdentity.version = 1;
   historyIdentity.recordSize = sizeof(History::Record);
   esp_read_mac(historyIdentity.deviceMac, ESP_MAC_BT);
@@ -147,6 +166,16 @@ uint16_t historyConnectionHandle() {
 }
 
 void serviceHistory() {
+  QueuedHistoryRecord queuedRecord{};
+  for (unsigned i = 0; i < 64 && historyRecordQueue &&
+       xQueueReceive(historyRecordQueue, &queuedRecord, 0) == pdTRUE; ++i) {
+    const bool appended = historyBuffer.append(History::makeRecord(
+        static_cast<History::Kind>(queuedRecord.kind), queuedRecord.flags,
+        queuedRecord.timestampUs, queuedRecord.payload,
+        queuedRecord.payloadBytes));
+    if (!appended) historyRecordDrops.fetch_add(1);
+  }
+
   static uint32_t lastCommandReport = 0;
   const uint32_t now = millis();
   if (now - lastCommandReport >= 5000) {
@@ -236,7 +265,19 @@ void serviceHistory() {
 }
 
 void recordHistory(uint8_t kind, uint8_t flags, uint64_t timeUs, const void* payload, size_t bytes) {
-  historyBuffer.append(History::makeRecord(static_cast<History::Kind>(kind), flags, timeUs, payload, bytes));
+  if (!historyRecordQueue || bytes > HISTORY_RECORD_PAYLOAD_BYTES ||
+      (bytes != 0 && !payload)) {
+    historyRecordDrops.fetch_add(1);
+    return;
+  }
+  QueuedHistoryRecord queued{};
+  queued.kind = kind;
+  queued.flags = flags;
+  queued.payloadBytes = static_cast<uint8_t>(bytes);
+  queued.timestampUs = timeUs;
+  if (bytes != 0) memcpy(queued.payload, payload, bytes);
+  if (xQueueSend(historyRecordQueue, &queued, 0) != pdTRUE)
+    historyRecordDrops.fetch_add(1);
 }
 
 void recordDepthSample() {
@@ -252,11 +293,11 @@ void recordDepthSample() {
   recordHistory(1, (pressurePresent ? 1 : 0) | (zeroed ? 2 : 0), timestampUs, payload, sizeof(payload));
 }
 
-void recordImuSample() {
+void recordImuSample(uint64_t sampleTimeUs) {
   int16_t payload[6] = {};
   if (imuValid)
     for (size_t i = 0; i < 6; ++i) payload[i] = lroundf(imuAxes[i] * (i < 3 ? 1000.0f : 10.0f));
-  recordHistory(2, imuValid ? 1 : 0, esp_timer_get_time(), payload, sizeof(payload));
+  recordHistory(2, imuValid ? 1 : 0, sampleTimeUs, payload, sizeof(payload));
 }
 
 void recordPpgSample(uint64_t sampleTimeUs) {

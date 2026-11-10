@@ -46,10 +46,15 @@ assignments, power setup, and manual pump-test behavior. The
 ## Final IMU pipeline
 
 The BMI270 is represented by the `ImuSensor imu` object. The final firmware
-polls the sensor every 50 ms (20 Hz), and `ImuRisk::Window` stores exactly 60
-samples (3 seconds) in channel order `[ax, ay, az, gx, gy, gz]`. A failed read
-occupies an invalid window slot instead of being skipped. The risk evaluator
-runs only when the complete window is valid.
+acquisition task polls the sensor every 50 ms (20 Hz) and stores timestamped
+samples in a rolling buffer. A failed read occupies an invalid slot instead of
+being skipped. The separate processing task copies the latest 60 samples (3
+seconds) into `ImuRisk::Window` in channel order `[ax, ay, az, gx, gy, gz]`,
+then releases the buffer lock before evaluation. It evaluates only a complete,
+valid window. Timestamped readings and window-based risk results carry
+monotonic microsecond times; the legacy millisecond timestamp remains for
+existing telemetry. The CNN threshold is configured by
+`Config::CNN_SCORE_THRESHOLD` (initially 0.5).
 
 The current BMI270 hardware configuration remains 100 Hz while firmware
 sampling is 20 Hz. This first integration uses the latest sensor register value
@@ -59,14 +64,29 @@ polling without changing the window or evaluator interfaces.
 The IMU object supports stationary gyro calibration. Hold the device still and
 send `calibrate gyro`; send `clear calibration` to remove runtime biases.
 
+## Continuous sensor acquisition
+
+The `sensor-acquisition` task initializes the devices and owns the shared I²C
+bus. It services the PPG FIFO every 5 ms, advances depth conversion without
+waiting, and samples the IMU every 50 ms. Its timestamped
+rolling buffers hold 120 IMU samples, 32 depth samples and 200 PPG readings.
+The processing task and telemetry copy from these buffers under a short mutex;
+they do not hold it while evaluating a window. The regular Arduino loop handles
+serial commands, telemetry, history transfer and diagnostics.
+
+Gyro calibration commands are queued for the acquisition task. Calibration
+samples are collected incrementally so the task continues servicing the other
+sensors. Sensor history records also pass through a bounded, nonblocking queue
+so the history ring remains single-owner in the main loop.
+
 ## Nonblocking depth sampling
 
 The MS5837-30BA depth path keeps the initial cadence at 5 Hz
-(`DEPTH_SAMPLE_PERIOD_MS = 200`). `DepthSensor::service()` is called on every
-pass through `loop()` and advances three states: idle, waiting for the 20 ms
+(`DEPTH_SAMPLE_PERIOD_MS = 200`). `DepthSensor::service()` is called by the
+acquisition task and advances three states: idle, waiting for the 20 ms
 pressure-conversion deadline, and waiting for the 20 ms temperature-conversion
-deadline. It returns immediately between conversion steps, so `servicePpg()`
-and the 50 ms IMU poll continue to run while the MS5837 is converting.
+deadline. It returns immediately between conversion steps, so PPG service and
+the 50 ms IMU poll continue while the MS5837 is converting.
 
 The official BlueRobotics MS5837 v1.1.1 `read()` method does not expose its
 conversion or calibration primitives. The depth module therefore schedules the
@@ -76,8 +96,28 @@ sample. Failed or partial conversions never replace the current valid sample.
 
 The `z` command queues a fresh pressure/temperature conversion through the
 same state machine. A surface baseline is changed only after that conversion
-passes the validity checks. Depth filtering, rate estimation, and BLE packet
-formats are unchanged.
+passes the validity checks. The existing Hampel and EMA preprocessing remains
+unchanged; the slope regression window is now one second
+(`Config::DEPTH_REGRESSION_WINDOW_MS`). The 5 Hz cadence and BLE packet formats
+remain unchanged. Depth readings expose the rate input interval, and
+`SinkRateEstimator::compare()` returns the associated timestamped score and
+validity.
+
+## PPG interface and initial risk settings
+
+The MAX30102 remains configured for 100 Hz internal sampling with four-sample
+averaging, yielding about 25 FIFO readings per second. HR/SpO2 analysis keeps
+its 100-reading window and 25-reading advance. `PpgSensor ppgSensor` exposes
+the latest red/infrared sample, its validity and timestamp, the last HR/SpO2
+analysis and its validity, and the configured placeholder risk. The initial
+placeholder is `Config::PPG_DUMMY_RISK_SCORE` (0.0) and is explicitly marked
+as dummy by `PpgRiskResult::usedDummy`; no physiological risk mapping is
+implied.
+
+Initial fusion weights are configured by `Config::DEPTH_FUSION_WEIGHT` and
+`Config::PPG_FUSION_WEIGHT` (both 0.5). These settings are groundwork for the
+later gated processing integration; this step does not change runtime fusion
+or actuator behavior.
 
 Host-side strict compilation and a fake-I²C state-machine test pass. Full ESP32
 compilation requires the pinned ESP32 core and libraries plus `arduino-cli`; an

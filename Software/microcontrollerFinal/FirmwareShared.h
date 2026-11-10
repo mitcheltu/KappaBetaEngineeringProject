@@ -17,6 +17,8 @@
 #include "ImuSensor.h"
 #include "ImuWindow.h"
 #include "DepthSensor.h"
+#include "PpgSensor.h"
+#include "SensorBuffers.h"
 #include "HistoryProtocol.h"
 
 #if !defined(CONFIG_IDF_TARGET_ESP32S3)
@@ -27,21 +29,27 @@ extern ImuSensor imu;
 extern ImuRisk::Evaluator imuRiskEvaluator;
 extern ImuRisk::Window imuWindow;
 extern MAX30105 ppg;
+extern PpgSensor ppgSensor;
 extern DepthSensor depthSensor;
+extern SensorBuffers sensorBuffers;
 extern NimBLEServer* bleServer;
 extern NimBLECharacteristic *depthCharacteristic, *imuCharacteristic;
 extern NimBLECharacteristic *ppgCharacteristic, *systemCharacteristic;
-extern bool busReady, imuReady, ppgReady, depthReady;
+extern std::atomic<bool> busReady, imuReady, ppgReady, depthReady;
 extern bool imuValid, rawPpgValid;
 extern bool hrValid, spo2Valid;
 extern float imuAxes[6];
 extern uint32_t imuMs, ppgMs, estimateMs;
-extern uint32_t redValue, irValue, ppgOverflows, sensorErrors;
+extern uint32_t redValue, irValue;
+extern std::atomic<uint32_t> ppgOverflows, sensorErrors;
 extern int32_t heartRate, oxygenSaturation;
-extern uint32_t irWindow[100], redWindow[100];
+extern uint32_t irWindow[Config::PPG_ANALYSIS_WINDOW_READINGS];
+extern uint32_t redWindow[Config::PPG_ANALYSIS_WINDOW_READINGS];
 extern size_t windowCount;
 extern uint32_t lastFifoServiceMs;
+extern std::atomic<uint32_t> historyRecordDrops;
 extern std::atomic<bool> zeroRequested, stopRequested, startRequested;
+extern std::atomic<bool> gyroCalibrationRequested, gyroCalibrationClearRequested;
 extern std::atomic<uint16_t> batteryMv;
 // Coherent diagnostic sample: high 16 bits = ADC mV, low 16 = battery estimate
 // before validity filtering. UINT32_MAX means no sample yet.
@@ -50,6 +58,7 @@ extern std::atomic<bool> sosReady;
 extern std::atomic<uint32_t> actuatorState;
 extern bool controlReady;
 extern TaskHandle_t controlTaskHandle;
+extern TaskHandle_t acquisitionTaskHandle, processingTaskHandle;
 
 bool readRegisters(uint8_t address, uint8_t reg, uint8_t* data, size_t count);
 bool writeRegister(uint8_t address, uint8_t reg, uint8_t value);
@@ -64,6 +73,8 @@ void initializeDepth();
 void sampleImu();
 bool calibrateImuGyro();
 void clearImuCalibration();
+void acquisitionTask(void*);
+void processingTask(void*);
 void serviceDepth();
 void serviceDepthZero();
 void controlTask(void*);
@@ -84,7 +95,7 @@ void updateHistoryIdentity();
 void* historyMlWorkspace(size_t index);
 void recordHistory(uint8_t kind, uint8_t flags, uint64_t timeUs, const void* payload, size_t bytes);
 void recordDepthSample();
-void recordImuSample();
+void recordImuSample(uint64_t sampleTimeUs);
 void recordPpgSample(uint64_t sampleTimeUs);
 void recordPpgGap();
 void recordSurfaceZero();

@@ -6,7 +6,6 @@ void initializeImu() {
   imuValid = false;
   imuReady = imu.begin(Wire, Config::IMU_ADDRESS);
   if (imuReady) {
-    imuWindow.clear();
     logMessage(LogLevel::INFO, "IMU", "BMI270 ready: accel +/-8g, gyro +/-2000dps, 100Hz sensor rate; firmware samples at 20Hz");
     failureReported = false;
   } else {
@@ -25,10 +24,13 @@ void initializeImu() {
 }
 
 void sampleImu() {
-  const bool transferOk = imuReady && imu.update();
+  const bool wasReady = imuReady.load();
+  const bool transferOk = wasReady && imu.update();
   imuValid = transferOk;
+  ImuReading bufferedReading{};
   if (imuValid) {
     const ImuReading& reading = imu.reading();
+    bufferedReading = reading;
     imuAxes[0] = reading.acceleration[0];
     imuAxes[1] = reading.acceleration[1];
     imuAxes[2] = reading.acceleration[2];
@@ -38,39 +40,70 @@ void sampleImu() {
     imuMs = reading.timestampMs;
   } else {
     for (float& axis : imuAxes) axis = NAN;
-    logMessage(LogLevel::WARN, "IMU", "%s; readings invalid until reinitialization",
-               transferOk ? "BMI270 sample nonfinite or outside telemetry range" : "BMI270 sample read failed");
-    ++sensorErrors;
-    imuReady = false;
+    bufferedReading.timestampUs = static_cast<uint64_t>(esp_timer_get_time());
+    bufferedReading.timestampMs = millis();
+    bufferedReading.valid = false;
+    if (wasReady) {
+      logMessage(LogLevel::WARN, "IMU", "BMI270 sample read failed; readings invalid until reinitialization");
+      ++sensorErrors;
+      imuReady = false;
+    }
   }
 
-  // Push one time slot every 50 ms. A failed transfer occupies an invalid
-  // slot, preventing a 60-valid-sample window from spanning more than 3 s.
-  imuWindow.push(imu.reading());
-  if (imuWindow.allValid()) {
-    const uint8_t risk = imuRiskEvaluator.evaluate(imuWindow.tensor());
-    logMessage(LogLevel::DEBUG, "IMU", "window=%u/%u risk=%u score=%.3f accel=%.3fg gyro=%.3fdps",
-               unsigned(imuWindow.sampleCount()), unsigned(ImuRisk::IMU_WINDOW_SAMPLES),
-               unsigned(risk), imuRiskEvaluator.lastScore(),
-               imu.accelerationMagnitude(), imu.gyroMagnitude());
+  // Keep one slot per 20 Hz attempt, including invalid reads, in the rolling
+  // acquisition buffer. Processing copies its own stable window later.
+  sensorBuffers.pushImu(bufferedReading);
+  if (sensorBuffers.imuCount() >= ImuRisk::IMU_WINDOW_SAMPLES &&
+      processingTaskHandle) {
+    xTaskNotify(processingTaskHandle, 1, eSetValueWithOverwrite);
   }
 
-  recordImuSample();
+  recordImuSample(bufferedReading.timestampUs);
 }
 
 bool calibrateImuGyro() {
-  if (!imuReady) return false;
-  const bool calibrated = imu.calibrateGyro();
-  imuValid = false;
-  imuWindow.clear();
-  for (float& axis : imuAxes) axis = NAN;
-  imuReady = calibrated;
-  return calibrated;
+  if (!imuReady.load()) return false;
+  bool expected = false;
+  return gyroCalibrationRequested.compare_exchange_strong(expected, true);
 }
 
 void clearImuCalibration() {
-  imu.clearCalibration();
-  imuValid = false;
-  imuWindow.clear();
-  for (float& axis : imuAxes) axis = NAN;
+  gyroCalibrationClearRequested.store(true);
+}
+
+void processingTask(void*) {
+  ImuReading snapshot[ImuRisk::IMU_WINDOW_SAMPLES]{};
+  uint32_t notification = 0;
+  for (;;) {
+    if (xTaskNotifyWait(0, UINT32_MAX, &notification, portMAX_DELAY) != pdTRUE)
+      continue;
+
+    const uint64_t targetUs = static_cast<uint64_t>(esp_timer_get_time());
+    const std::size_t copied = sensorBuffers.copyLatestImu(
+        targetUs, snapshot, ImuRisk::IMU_WINDOW_SAMPLES);
+    if (copied != ImuRisk::IMU_WINDOW_SAMPLES) continue;
+
+    imuWindow.clear();
+    for (std::size_t i = 0; i < copied; ++i) imuWindow.push(snapshot[i]);
+    if (!imuWindow.allValid()) continue;
+
+    const uint8_t classification = imuRiskEvaluator.evaluate(
+        imuWindow.tensor(), imuWindow.startTimestampUs(),
+        imuWindow.endTimestampUs());
+    const ImuReading& latest = snapshot[copied - 1];
+    const float accelerationMagnitude = sqrtf(
+        latest.acceleration[0] * latest.acceleration[0] +
+        latest.acceleration[1] * latest.acceleration[1] +
+        latest.acceleration[2] * latest.acceleration[2]);
+    const float gyroMagnitude = sqrtf(
+        latest.gyro[0] * latest.gyro[0] +
+        latest.gyro[1] * latest.gyro[1] +
+        latest.gyro[2] * latest.gyro[2]);
+    logMessage(LogLevel::DEBUG, "IMU", "window=%u/%u interval=%llu..%llu us risk=%u score=%.3f accel=%.3fg gyro=%.3fdps",
+        static_cast<unsigned>(copied), static_cast<unsigned>(ImuRisk::IMU_WINDOW_SAMPLES),
+        static_cast<unsigned long long>(imuRiskEvaluator.result().inputStartUs),
+        static_cast<unsigned long long>(imuRiskEvaluator.result().inputEndUs),
+        static_cast<unsigned>(classification), imuRiskEvaluator.lastScore(),
+        accelerationMagnitude, gyroMagnitude);
+  }
 }

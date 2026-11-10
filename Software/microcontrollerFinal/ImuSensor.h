@@ -13,6 +13,7 @@
 struct ImuReading {
   float acceleration[3] = {NAN, NAN, NAN}; // g
   float gyro[3] = {NAN, NAN, NAN};         // degrees per second
+  uint64_t timestampUs = 0;                 // monotonic measurement time
   uint32_t timestampMs = 0;
   bool valid = false;
 };
@@ -21,6 +22,12 @@ struct ImuCalibration {
   float accelerationBias[3] = {0.0f, 0.0f, 0.0f}; // g
   float gyroBias[3] = {0.0f, 0.0f, 0.0f};         // degrees per second
   bool gyroBiasValid = false;
+};
+
+enum class ImuCalibrationEvent : uint8_t {
+  NONE,
+  COMPLETE,
+  FAILED,
 };
 
 class ImuSensor {
@@ -37,6 +44,13 @@ class ImuSensor {
   // Keep the board motionless while this blocking operation runs. This does
   // not claim to calibrate accelerometer scale or multi-position bias.
   bool calibrateGyro(uint16_t sampleCount = 200, uint16_t intervalMs = 5);
+
+  // Nonblocking calibration path for the acquisition task. Call service
+  // repeatedly; it performs at most one I2C sample per call.
+  bool startGyroCalibration(uint16_t sampleCount = 200,
+                            uint16_t intervalMs = 5);
+  ImuCalibrationEvent serviceGyroCalibration();
+  bool gyroCalibrationActive() const { return gyroCalibrationActive_; }
 
   void clearCalibration();
   void setAccelerationBias(float x, float y, float z);
@@ -67,4 +81,10 @@ class ImuSensor {
   ImuReading reading_;
   ImuCalibration calibration_;
   bool ready_ = false;
+  bool gyroCalibrationActive_ = false;
+  uint16_t gyroCalibrationTarget_ = 0;
+  uint16_t gyroCalibrationCount_ = 0;
+  uint64_t gyroCalibrationIntervalUs_ = 0;
+  uint64_t gyroCalibrationNextSampleUs_ = 0;
+  double gyroCalibrationSums_[3] = {0.0, 0.0, 0.0};
 };
