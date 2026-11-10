@@ -55,7 +55,7 @@ void sampleImu() {
   sensorBuffers.pushImu(bufferedReading);
   if (sensorBuffers.imuCount() >= ImuRisk::IMU_WINDOW_SAMPLES &&
       processingTaskHandle) {
-    xTaskNotify(processingTaskHandle, 1, eSetValueWithOverwrite);
+    xTaskNotify(processingTaskHandle, PROCESSING_NOTIFY_IMU, eSetBits);
   }
 
   recordImuSample(bufferedReading.timestampUs);
@@ -72,38 +72,67 @@ void clearImuCalibration() {
 }
 
 void processingTask(void*) {
-  ImuReading snapshot[ImuRisk::IMU_WINDOW_SAMPLES]{};
+  static ImuReading snapshot[ImuRisk::IMU_WINDOW_SAMPLES]{};
+  static bool imuTimingGapReported = false;
   uint32_t notification = 0;
   for (;;) {
     if (xTaskNotifyWait(0, UINT32_MAX, &notification, portMAX_DELAY) != pdTRUE)
       continue;
 
-    const uint64_t targetUs = static_cast<uint64_t>(esp_timer_get_time());
-    const std::size_t copied = sensorBuffers.copyLatestImu(
-        targetUs, snapshot, ImuRisk::IMU_WINDOW_SAMPLES);
-    if (copied != ImuRisk::IMU_WINDOW_SAMPLES) continue;
+    if ((notification & PROCESSING_NOTIFY_IMU) != 0) {
+      const uint64_t targetUs = static_cast<uint64_t>(esp_timer_get_time());
+      const std::size_t copied = sensorBuffers.copyLatestImu(
+          targetUs, snapshot, ImuRisk::IMU_WINDOW_SAMPLES);
+      if (copied == ImuRisk::IMU_WINDOW_SAMPLES) {
+        imuWindow.clear();
+        for (std::size_t i = 0; i < copied; ++i) imuWindow.push(snapshot[i]);
+        if (!imuWindow.allValid()) {
+          imuRiskEvaluator.invalidate(imuWindow.startTimestampUs(),
+                                      imuWindow.endTimestampUs());
+        } else {
+          if (!imuWindow.timingValid()) {
+            imuRiskEvaluator.invalidate(imuWindow.startTimestampUs(),
+                                        imuWindow.endTimestampUs());
+            if (!imuTimingGapReported) {
+              logMessage(LogLevel::WARN, "IMU",
+                  "CNN window rejected: timing gap/span exceeds limits (span=%llu us max_gap=%llu us)",
+                  static_cast<unsigned long long>(imuWindow.durationUs()),
+                  static_cast<unsigned long long>(imuWindow.maxSampleGapUs()));
+              imuTimingGapReported = true;
+            }
+          } else {
+            if (imuTimingGapReported) {
+              logMessage(LogLevel::INFO, "IMU",
+                         "CNN window timing recovered; inference resumed.");
+              imuTimingGapReported = false;
+            }
+            const uint8_t classification = imuRiskEvaluator.evaluate(
+                imuWindow.tensor(), imuWindow.startTimestampUs(),
+                imuWindow.endTimestampUs());
+            const ImuReading& latest = snapshot[copied - 1];
+            const float accelerationMagnitude = sqrtf(
+                latest.acceleration[0] * latest.acceleration[0] +
+                latest.acceleration[1] * latest.acceleration[1] +
+                latest.acceleration[2] * latest.acceleration[2]);
+            const float gyroMagnitude = sqrtf(
+                latest.gyro[0] * latest.gyro[0] +
+                latest.gyro[1] * latest.gyro[1] +
+                latest.gyro[2] * latest.gyro[2]);
+            logMessage(LogLevel::DEBUG, "IMU", "window=%u/%u interval=%llu..%llu us span=%llu us risk=%u score=%.3f accel=%.3fg gyro=%.3fdps",
+                static_cast<unsigned>(copied), static_cast<unsigned>(ImuRisk::IMU_WINDOW_SAMPLES),
+                static_cast<unsigned long long>(imuRiskEvaluator.result().inputStartUs),
+                static_cast<unsigned long long>(imuRiskEvaluator.result().inputEndUs),
+                static_cast<unsigned long long>(imuWindow.durationUs()),
+                static_cast<unsigned>(classification), imuRiskEvaluator.lastScore(),
+                accelerationMagnitude, gyroMagnitude);
+          }
+        }
+      }
+    }
 
-    imuWindow.clear();
-    for (std::size_t i = 0; i < copied; ++i) imuWindow.push(snapshot[i]);
-    if (!imuWindow.allValid()) continue;
-
-    const uint8_t classification = imuRiskEvaluator.evaluate(
-        imuWindow.tensor(), imuWindow.startTimestampUs(),
-        imuWindow.endTimestampUs());
-    const ImuReading& latest = snapshot[copied - 1];
-    const float accelerationMagnitude = sqrtf(
-        latest.acceleration[0] * latest.acceleration[0] +
-        latest.acceleration[1] * latest.acceleration[1] +
-        latest.acceleration[2] * latest.acceleration[2]);
-    const float gyroMagnitude = sqrtf(
-        latest.gyro[0] * latest.gyro[0] +
-        latest.gyro[1] * latest.gyro[1] +
-        latest.gyro[2] * latest.gyro[2]);
-    logMessage(LogLevel::DEBUG, "IMU", "window=%u/%u interval=%llu..%llu us risk=%u score=%.3f accel=%.3fg gyro=%.3fdps",
-        static_cast<unsigned>(copied), static_cast<unsigned>(ImuRisk::IMU_WINDOW_SAMPLES),
-        static_cast<unsigned long long>(imuRiskEvaluator.result().inputStartUs),
-        static_cast<unsigned long long>(imuRiskEvaluator.result().inputEndUs),
-        static_cast<unsigned>(classification), imuRiskEvaluator.lastScore(),
-        accelerationMagnitude, gyroMagnitude);
+    if ((notification & (PROCESSING_NOTIFY_PPG_UPDATED |
+                         PROCESSING_NOTIFY_PPG_ANALYZE)) != 0) {
+      processPpgSamples((notification & PROCESSING_NOTIFY_PPG_ANALYZE) != 0);
+    }
   }
 }

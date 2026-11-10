@@ -34,6 +34,7 @@ public:
   uint8_t evaluate(const ImuTensor& tensor);
   uint8_t evaluate(const ImuTensor& tensor, uint64_t inputStartUs,
                    uint64_t inputEndUs);
+  void invalidate(uint64_t inputStartUs, uint64_t inputEndUs);
 
   // Returns the score produced by the most recent evaluation.
   float lastScore() const { return result_.score; }

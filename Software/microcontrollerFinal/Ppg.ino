@@ -3,6 +3,8 @@
 namespace {
 int ppgSignalCandidate = -1, ppgSignalReported = -1;
 uint32_t ppgSignalChangedMs = 0;
+uint32_t ppgMs = 0;
+size_t windowCount = 0;
 }
 
 void logPpgSignalQuality(uint32_t red, uint32_t ir) {
@@ -25,16 +27,15 @@ void logPpgSignalQuality(uint32_t red, uint32_t ir) {
 }
 
 void resetPpgWindow() {
-  if (windowCount != 0 || rawPpgValid || hrValid || spo2Valid)
+  if (windowCount != 0)
     logMessage(LogLevel::DEBUG, "PPG", "Discarding optical window (%u samples); raw/HR/SpO2 validity cleared", unsigned(windowCount));
   ppgSignalCandidate = ppgSignalReported = -1;
   windowCount = 0;
-  rawPpgValid = hrValid = spo2Valid = false;
   const uint64_t timestampUs = static_cast<uint64_t>(esp_timer_get_time());
   ppgSensor.invalidateReading(timestampUs);
-  ppgSensor.invalidateAnalysis(timestampUs);
   sensorBuffers.pushPpg(ppgSensor.reading());
-  sensorBuffers.publishPpgAnalysis(ppgSensor.analysis());
+  if (processingTaskHandle)
+    xTaskNotify(processingTaskHandle, PROCESSING_NOTIFY_PPG_UPDATED, eSetBits);
   recordPpgGap();
 }
 
@@ -46,55 +47,92 @@ bool clearPpgFifo() {
 }
 
 void acceptPpgSample(uint32_t red, uint32_t ir, uint64_t sampleTimeUs) {
-  redValue = red; irValue = ir; ppgMs = millis(); rawPpgValid = true;
+  ppgMs = millis();
   ppgSensor.publishReading(red, ir, sampleTimeUs);
   sensorBuffers.pushPpg(ppgSensor.reading());
   logPpgSignalQuality(red, ir);
-  if (ir < Config::PPG_MIN_IR || red == 0 || ir >= Config::PPG_MAX_ADC || red >= Config::PPG_MAX_ADC) {
-    if (hrValid || spo2Valid)
-      logMessage(LogLevel::DEBUG, "PPG", "HR/SpO2 invalidated by optical signal gate (red=%lu IR=%lu)",
+  if (!ppgSignalAccepted(red, ir)) {
+    if (windowCount != 0)
+      logMessage(LogLevel::DEBUG, "PPG", "Optical signal gate interrupted HR/SpO2 window (red=%lu IR=%lu)",
                  static_cast<unsigned long>(red), static_cast<unsigned long>(ir));
-    windowCount = 0; hrValid = spo2Valid = false;
-    ppgSensor.invalidateAnalysis(sampleTimeUs);
+    windowCount = 0;
+    if (processingTaskHandle)
+      xTaskNotify(processingTaskHandle, PROCESSING_NOTIFY_PPG_UPDATED, eSetBits);
+    recordPpgSample(sampleTimeUs);
+    return;
+  }
+  ++windowCount;
+  if (windowCount == Config::PPG_ANALYSIS_WINDOW_READINGS) {
+    if (processingTaskHandle)
+      xTaskNotify(processingTaskHandle,
+                  PROCESSING_NOTIFY_PPG_UPDATED | PROCESSING_NOTIFY_PPG_ANALYZE,
+                  eSetBits);
+    // Advance the trigger by 25 readings. The worker copies the latest full
+    // 100-reading window from the ring when it handles the notification.
+    windowCount = Config::PPG_ANALYSIS_WINDOW_READINGS -
+                  Config::PPG_ANALYSIS_ADVANCE_READINGS;
+  }
+  recordPpgSample(sampleTimeUs);
+}
+
+void processPpgSamples(bool analyzeWindow) {
+  static PpgReading snapshot[Config::PPG_ANALYSIS_WINDOW_READINGS]{};
+  static uint32_t irWindow[Config::PPG_ANALYSIS_WINDOW_READINGS]{};
+  static uint32_t redWindow[Config::PPG_ANALYSIS_WINDOW_READINGS]{};
+
+  const uint64_t nowUs = static_cast<uint64_t>(esp_timer_get_time());
+  PpgReading latest{};
+  if (!sensorBuffers.latestPpg(nowUs, latest)) return;
+
+  if (!latest.valid || !ppgSignalAccepted(latest.red, latest.infrared)) {
+    ppgSensor.invalidateAnalysis(latest.timestampUs);
     sensorBuffers.publishPpgAnalysis(ppgSensor.analysis());
-    recordPpgSample(sampleTimeUs);
     return;
   }
-  irWindow[windowCount] = ir;
-  redWindow[windowCount++] = red;
-  if (windowCount < Config::PPG_ANALYSIS_WINDOW_READINGS) {
-    recordPpgSample(sampleTimeUs);
-    return;
+  if (!analyzeWindow) return;
+
+  const std::size_t copied = sensorBuffers.copyLatestPpg(
+      nowUs, snapshot, Config::PPG_ANALYSIS_WINDOW_READINGS);
+  if (copied != Config::PPG_ANALYSIS_WINDOW_READINGS) return;
+
+  for (std::size_t i = 0; i < copied; ++i) {
+    if (!snapshot[i].valid ||
+        !ppgSignalAccepted(snapshot[i].red, snapshot[i].infrared)) {
+      ppgSensor.invalidateAnalysis(latest.timestampUs);
+      sensorBuffers.publishPpgAnalysis(ppgSensor.analysis());
+      return;
+    }
+    redWindow[i] = snapshot[i].red;
+    irWindow[i] = snapshot[i].infrared;
   }
+  const uint64_t windowEndUs = snapshot[copied - 1].timestampUs;
+
+  int32_t heartRate = 0, oxygenSaturation = 0;
   int8_t validHr = 0, validSpo2 = 0;
-  const bool previousHrValid = hrValid, previousSpo2Valid = spo2Valid;
+  const bool previousHrValid = ppgSensor.analysis().heartRateValid;
+  const bool previousSpo2Valid = ppgSensor.analysis().oxygenSaturationValid;
   maxim_heart_rate_and_oxygen_saturation(irWindow,
       Config::PPG_ANALYSIS_WINDOW_READINGS, redWindow,
       &oxygenSaturation, &validSpo2, &heartRate, &validHr);
-  hrValid = validHr != 0 && heartRate > 0 && heartRate < 6553;
-  spo2Valid = validSpo2 != 0 && oxygenSaturation > 0 && oxygenSaturation <= 100;
+  const bool hrValid = validHr != 0 && heartRate > 0 && heartRate < 6553;
+  const bool spo2Valid = validSpo2 != 0 && oxygenSaturation > 0 &&
+                         oxygenSaturation <= 100;
   ppgSensor.publishAnalysis(heartRate, oxygenSaturation, hrValid, spo2Valid,
-                            sampleTimeUs);
+                            windowEndUs);
   sensorBuffers.publishPpgAnalysis(ppgSensor.analysis());
   if (hrValid != previousHrValid || spo2Valid != previousSpo2Valid)
     logMessage(LogLevel::DEBUG, "PPG", "Estimate validity HR=%s (%ld BPM), SpO2=%s (%ld%%)",
                hrValid ? "valid" : "invalid", static_cast<long>(heartRate),
                spo2Valid ? "valid" : "invalid", static_cast<long>(oxygenSaturation));
-  estimateMs = millis();
-  // Four seconds at 25 FIFO samples/s, recomputed each second (Example8).
-  constexpr size_t retainedReadings = Config::PPG_ANALYSIS_WINDOW_READINGS -
-                                      Config::PPG_ANALYSIS_ADVANCE_READINGS;
-  memmove(irWindow, irWindow + Config::PPG_ANALYSIS_ADVANCE_READINGS,
-          retainedReadings * sizeof(uint32_t));
-  memmove(redWindow, redWindow + Config::PPG_ANALYSIS_ADVANCE_READINGS,
-          retainedReadings * sizeof(uint32_t));
-  windowCount = retainedReadings;
-  recordPpgSample(sampleTimeUs);
 }
 
 float getPpgRisk() {
   // Placeholder until the PPG risk model and mapping are available.
-  const PpgRiskResult result = ppgSensor.riskResult();
+  PpgReading latest{};
+  const uint64_t nowUs = static_cast<uint64_t>(esp_timer_get_time());
+  const uint64_t timestampUs = sensorBuffers.latestPpg(nowUs, latest)
+      ? latest.timestampUs : nowUs;
+  const PpgRiskResult result = ppgSensor.riskResult(timestampUs);
   return result.valid ? result.score : NAN;
 }
 

@@ -27,6 +27,11 @@ struct PpgRiskResult {
   bool usedDummy = false;
 };
 
+inline bool ppgSignalAccepted(uint32_t red, uint32_t infrared) {
+  return infrared >= Config::PPG_MIN_IR && red != 0 &&
+         infrared < Config::PPG_MAX_ADC && red < Config::PPG_MAX_ADC;
+}
+
 // Application-facing MAX30102 interface. The MAX3010x driver remains
 // responsible for bus access; this object publishes timestamped readings and
 // exposes the explicitly configured risk placeholder until a real mapper is

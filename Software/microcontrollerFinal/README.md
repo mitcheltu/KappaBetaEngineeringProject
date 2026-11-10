@@ -74,6 +74,12 @@ The processing task and telemetry copy from these buffers under a short mutex;
 they do not hold it while evaluating a window. The regular Arduino loop handles
 serial commands, telemetry, history transfer and diagnostics.
 
+Before CNN inference, each 60-sample IMU window is checked for per-sample
+spacing and total span; windows with missed or excessively delayed samples are
+skipped. HR/SpO2 calculation runs in the processing task from a copied
+100-reading PPG window, leaving the acquisition task to service the FIFO and
+other sensors. Its timing impact still needs measurement on the ESP32 hardware.
+
 Gyro calibration commands are queued for the acquisition task. Calibration
 samples are collected incrementally so the task continues servicing the other
 sensors. Sensor history records also pass through a bounded, nonblocking queue

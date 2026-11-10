@@ -20,6 +20,9 @@ class Window {
 
   bool full() const { return sampleCount_ == IMU_WINDOW_SAMPLES; }
   bool allValid() const;
+  bool timingValid() const;
+  uint64_t durationUs() const;
+  uint64_t maxSampleGapUs() const;
   size_t sampleCount() const { return sampleCount_; }
   const ImuTensor& tensor() const { return tensor_; }
   uint64_t startTimestampUs() const {

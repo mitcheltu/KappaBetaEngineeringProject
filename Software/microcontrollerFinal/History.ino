@@ -302,12 +302,24 @@ void recordImuSample(uint64_t sampleTimeUs) {
 
 void recordPpgSample(uint64_t sampleTimeUs) {
   PpgPacket packet{};
-  packet.red = redValue; packet.ir = irValue;
+  PpgReading reading{};
+  const bool haveReading = sensorBuffers.latestPpg(sampleTimeUs, reading);
+  packet.red = haveReading ? reading.red : 0;
+  packet.ir = haveReading ? reading.infrared : 0;
   packet.hrTenths = packet.spo2Hundredths = UINT16_MAX;
   uint8_t flags = 0x81; // Raw values present; FIFO acquisition time is estimated.
-  if (millis() - estimateMs < 2000) {
-    if (hrValid) { packet.hrTenths = heartRate * 10; flags |= 2; }
-    if (spo2Valid) { packet.spo2Hundredths = oxygenSaturation * 100; flags |= 4; }
+  PpgAnalysis analysis{};
+  if (sensorBuffers.latestPpgAnalysis(sampleTimeUs, analysis) &&
+      sampleTimeUs >= analysis.timestampUs &&
+      sampleTimeUs - analysis.timestampUs < 2000000ULL) {
+    if (analysis.heartRateValid) {
+      packet.hrTenths = analysis.heartRateBpm * 10;
+      flags |= 2;
+    }
+    if (analysis.oxygenSaturationValid) {
+      packet.spo2Hundredths = analysis.oxygenSaturationPercent * 100;
+      flags |= 4;
+    }
   }
   recordHistory(3, flags, sampleTimeUs, &packet.red, 12);
 }

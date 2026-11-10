@@ -51,6 +51,10 @@ constexpr uint32_t IMU_SAMPLE_RATE_HZ = 20;
 constexpr uint32_t IMU_WINDOW_SECONDS = 3;
 constexpr uint32_t IMU_PERIOD_MS = 1000 / IMU_SAMPLE_RATE_HZ;
 constexpr uint32_t IMU_WINDOW_SAMPLES = IMU_SAMPLE_RATE_HZ * IMU_WINDOW_SECONDS;
+// Allow small scheduling/I2C jitter while rejecting missed acquisition slots
+// and windows that have drifted materially beyond their intended duration.
+constexpr uint32_t IMU_SAMPLE_INTERVAL_TOLERANCE_US = 10000;
+constexpr uint32_t IMU_WINDOW_SPAN_TOLERANCE_US = 150000;
 constexpr uint32_t DEPTH_PERIOD_MS = DEPTH_SAMPLE_PERIOD_MS;
 constexpr uint32_t DEPTH_REGRESSION_WINDOW_MS = 1000;
 constexpr uint32_t DEPTH_STALE_AFTER_MS = 1000;

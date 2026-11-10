@@ -17,6 +17,14 @@ uint8_t Evaluator::evaluate(const ImuTensor& tensor, uint64_t inputStartUs,
   return result_.classification;
 }
 
+void Evaluator::invalidate(uint64_t inputStartUs, uint64_t inputEndUs) {
+  result_.score = NAN;
+  result_.inputStartUs = inputStartUs;
+  result_.inputEndUs = inputEndUs;
+  result_.classification = 0;
+  result_.valid = false;
+}
+
 bool Evaluator::setThreshold(float threshold) {
   if (!std::isfinite(threshold) || threshold < 0.0f || threshold > 1.0f)
     return false;
