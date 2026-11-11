@@ -419,6 +419,8 @@ void DepthSensor::processSample(uint64_t timestampUs, float pressurePa,
 void DepthSensor::updateDepthRate(uint64_t timestampUs) {
   reading_.depthRateMps = NAN;
   reading_.rateValid = false;
+  reading_.rateWindowStartUs = 0;
+  reading_.rateWindowEndUs = timestampUs;
   reading_.qualityFlags |= DepthQuality::RATE_UNAVAILABLE;
 
   if (config_.minimumRegressionSamples < 2 || filteredHistoryCount_ == 0)
@@ -437,6 +439,7 @@ void DepthSensor::updateDepthRate(uint64_t timestampUs) {
     }
   }
   if (sampleCount < config_.minimumRegressionSamples) return;
+  reading_.rateWindowStartUs = firstTimestampUs;
 
   double timeSum = 0.0;
   double depthSum = 0.0;

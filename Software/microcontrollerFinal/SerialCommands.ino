@@ -9,13 +9,15 @@ void processCommand(const char* command) {
   if (strcmp(command, "log debug") == 0) { setLogLevel(3); return; }
   if (strcmp(command, "z") == 0) { zeroRequested.store(true); logReply("COMMAND", "surface zero requested"); return; }
   if (strcmp(command, "calibrate gyro") == 0) {
-    logReply("COMMAND", "keep the IMU motionless; calibrating gyro bias");
-    logReply("IMU", calibrateImuGyro() ? "gyro calibration complete" : "gyro calibration failed; sensor unavailable");
+    if (calibrateImuGyro())
+      logReply("IMU", "gyro calibration queued; keep the board motionless");
+    else
+      logReply("IMU", "gyro calibration not queued; sensor unavailable or request already pending");
     return;
   }
   if (strcmp(command, "clear calibration") == 0) {
     clearImuCalibration();
-    logReply("IMU", "calibration cleared");
+    logReply("IMU", "clear calibration queued");
     return;
   }
   if (strcmp(command, "off") == 0) { stopRequested.store(true); logReply("COMMAND", "blue LED/pump stop requested"); return; }

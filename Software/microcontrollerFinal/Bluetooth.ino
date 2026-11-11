@@ -75,9 +75,20 @@ void sendPacket(NimBLECharacteristic* characteristic, const void* packet) {
 
 void publishTelemetry(uint32_t now) {
   static uint16_t sequence = 0;
+  const uint64_t nowUs = static_cast<uint64_t>(esp_timer_get_time());
   const PacketHeader header{1, 0, sequence++, now};
-  const DepthReading depthReading = depthSensor.snapshot(static_cast<uint64_t>(now) * 1000ULL);
-  const bool freshPressure = depthReading.sensorValid;
+  DepthReading depthReading{};
+  const bool haveDepth = sensorBuffers.latestDepth(nowUs, depthReading);
+  const bool depthFresh = haveDepth && nowUs >= depthReading.timestampUs &&
+      nowUs - depthReading.timestampUs <
+          static_cast<uint64_t>(Config::DEPTH_STALE_AFTER_MS) * 1000ULL;
+  if (haveDepth && !depthFresh) {
+    depthReading.qualityFlags |= DepthQuality::STALE;
+    depthReading.sensorValid = false;
+    depthReading.depthValid = false;
+    depthReading.rateValid = false;
+  }
+  const bool freshPressure = depthFresh && depthReading.sensorValid;
   const bool calibrated = freshPressure && depthReading.depthValid;
   DepthPacket depth{};
   depth.header = header;
@@ -87,18 +98,40 @@ void publishTelemetry(uint32_t now) {
   depth.depthM = calibrated ? depthReading.filteredDepthM : NAN;
   ImuPacket motion{};
   motion.header = header;
-  if (imuValid && now - imuMs < 300) {
+  ImuReading imuReading{};
+  const bool haveImu = sensorBuffers.latestImu(nowUs, imuReading);
+  if (haveImu && imuReading.valid && nowUs >= imuReading.timestampUs &&
+      nowUs - imuReading.timestampUs < 300000ULL) {
     motion.header.flags = 1;
-    for (size_t i = 0; i < 6; ++i) motion.axes[i] = lroundf(imuAxes[i] * (i < 3 ? 1000.0f : 10.0f));
+    for (size_t i = 0; i < 3; ++i)
+      motion.axes[i] = lroundf(imuReading.acceleration[i] * 1000.0f);
+    for (size_t i = 0; i < 3; ++i)
+      motion.axes[i + 3] = lroundf(imuReading.gyro[i] * 10.0f);
   }
   PpgPacket optical{};
   optical.header = header;
   optical.hrTenths = optical.spo2Hundredths = UINT16_MAX;
-  if (rawPpgValid && now - ppgMs < 300) {
-    optical.header.flags = 1; optical.red = redValue; optical.ir = irValue;
-    if (now - estimateMs < 2000) {
-      if (hrValid) { optical.header.flags |= 2; optical.hrTenths = heartRate * 10; }
-      if (spo2Valid) { optical.header.flags |= 4; optical.spo2Hundredths = oxygenSaturation * 100; }
+  PpgReading ppgReading{};
+  PpgAnalysis ppgAnalysis{};
+  const bool havePpg = sensorBuffers.latestPpg(nowUs, ppgReading);
+  const bool ppgFresh = havePpg && ppgReading.valid &&
+      nowUs >= ppgReading.timestampUs && nowUs - ppgReading.timestampUs < 300000ULL;
+  if (ppgFresh) {
+    optical.header.flags = 1;
+    optical.red = ppgReading.red;
+    optical.ir = ppgReading.infrared;
+    const bool haveAnalysis = sensorBuffers.latestPpgAnalysis(nowUs, ppgAnalysis);
+    const bool analysisFresh = haveAnalysis && nowUs >= ppgAnalysis.timestampUs &&
+        nowUs - ppgAnalysis.timestampUs < 2000000ULL;
+    if (analysisFresh) {
+      if (ppgAnalysis.heartRateValid) {
+        optical.header.flags |= 2;
+        optical.hrTenths = ppgAnalysis.heartRateBpm * 10;
+      }
+      if (ppgAnalysis.oxygenSaturationValid) {
+        optical.header.flags |= 4;
+        optical.spo2Hundredths = ppgAnalysis.oxygenSaturationPercent * 100;
+      }
     }
   }
   SystemPacket system{};
@@ -108,7 +141,8 @@ void publishTelemetry(uint32_t now) {
       (controlReady && Config::ENABLE_ACTUATOR_TESTS ? 2 : 0) |
       static_cast<uint8_t>(controls);
   system.countdownRemainingMs = static_cast<uint16_t>(controls >> 8);
-  system.ppgOverflowCount = ppgOverflows; system.sensorErrors = sensorErrors;
+  system.ppgOverflowCount = ppgOverflows.load();
+  system.sensorErrors = sensorErrors.load();
   recordHistory(4, system.header.flags, esp_timer_get_time(), &system.batteryMv, 12);
   sendPacket(depthCharacteristic, &depth); sendPacket(imuCharacteristic, &motion);
   sendPacket(ppgCharacteristic, &optical); sendPacket(systemCharacteristic, &system);

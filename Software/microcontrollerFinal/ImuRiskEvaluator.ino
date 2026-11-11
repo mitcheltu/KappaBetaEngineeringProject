@@ -3,8 +3,33 @@
 namespace ImuRisk {
 
 uint8_t Evaluator::evaluate(const ImuTensor& tensor) {
-  lastScore_ = runCnn(tensor);
-  return lastScore_ >= TEMPORARY_RISK_THRESHOLD ? 1u : 0u;
+  return evaluate(tensor, 0, 0);
+}
+
+uint8_t Evaluator::evaluate(const ImuTensor& tensor, uint64_t inputStartUs,
+                            uint64_t inputEndUs) {
+  result_.score = runCnn(tensor);
+  result_.inputStartUs = inputStartUs;
+  result_.inputEndUs = inputEndUs;
+  result_.valid = std::isfinite(result_.score) && result_.score >= 0.0f &&
+                  result_.score <= 1.0f;
+  result_.classification = result_.valid && result_.score >= threshold_ ? 1u : 0u;
+  return result_.classification;
+}
+
+void Evaluator::invalidate(uint64_t inputStartUs, uint64_t inputEndUs) {
+  result_.score = NAN;
+  result_.inputStartUs = inputStartUs;
+  result_.inputEndUs = inputEndUs;
+  result_.classification = 0;
+  result_.valid = false;
+}
+
+bool Evaluator::setThreshold(float threshold) {
+  if (!std::isfinite(threshold) || threshold < 0.0f || threshold > 1.0f)
+    return false;
+  threshold_ = threshold;
+  return true;
 }
 
 float Evaluator::runCnn(const ImuTensor& tensor) {

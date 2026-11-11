@@ -7,6 +7,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "FirmwareConfig.h"
+
 #ifndef MS5837_H_BLUEROBOTICS
 #error "Select BlueRobotics MS5837 Library by BlueRobotics; another MS5837 library was found."
 #endif
@@ -35,9 +37,9 @@ struct DepthSensorConfig {
   float hampelDeviationThreshold = 3.0f; // PROVISIONAL/TBD MAD multiplier.
   float hampelMinimumDeviationM = 0.01f; // PROVISIONAL/TBD MAD floor.
   float emaAlpha = 0.25f; // PROVISIONAL/TBD.
-  uint32_t regressionWindowMs = 2500; // PROVISIONAL/TBD; required range is 2-3 s.
+  uint32_t regressionWindowMs = Config::DEPTH_REGRESSION_WINDOW_MS;
   uint8_t minimumRegressionSamples = 3; // PROVISIONAL/TBD.
-  uint32_t staleAfterMs = 1000; // PROVISIONAL/TBD.
+  uint32_t staleAfterMs = Config::DEPTH_STALE_AFTER_MS; // PROVISIONAL/TBD.
 
   float minimumPressurePa = 0.0f;
   float maximumPressurePa = 3000000.0f;
@@ -53,6 +55,8 @@ struct DepthReading {
   float rawDepthM = NAN;
   float filteredDepthM = NAN;
   float depthRateMps = NAN;
+  uint64_t rateWindowStartUs = 0;
+  uint64_t rateWindowEndUs = 0;
   bool sensorValid = false;
   bool depthValid = false;
   bool rateValid = false;

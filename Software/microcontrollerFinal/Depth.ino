@@ -21,11 +21,13 @@ void serviceDepth() {
   if (event == DepthServiceEvent::NONE) return;
 
   if (event == DepthServiceEvent::SAMPLE_PUBLISHED) {
+    sensorBuffers.pushDepth(depthSensor.reading());
     recordDepthSample();
     return;
   }
 
   if (event == DepthServiceEvent::SURFACE_ZERO_PUBLISHED) {
+    sensorBuffers.pushDepth(depthSensor.reading());
     logMessage(LogLevel::INFO, "DEPTH",
                "Surface zero=%.1fPa; sensor must be at the water surface",
                depthSensor.reading().surfacePressurePa);
@@ -34,6 +36,7 @@ void serviceDepth() {
   }
 
   const DepthReading& reading = depthSensor.reading();
+  sensorBuffers.pushDepth(reading);
   logMessage(LogLevel::WARN,
              "DEPTH",
              "MS5837 %s: pressure=%.1fPa temperature=%.2fC quality=0x%04x",
