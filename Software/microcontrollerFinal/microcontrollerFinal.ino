@@ -11,6 +11,11 @@ MAX30105 ppg;
 PpgSensor ppgSensor(Config::PPG_DUMMY_RISK_SCORE);
 DepthSensor depthSensor(DepthSensorConfig{
     Config::DEPTH_SAMPLE_PERIOD_MS, Config::DEPTH_WATER_DENSITY_KG_M3});
+SinkRateEstimator depthRiskEstimator(
+    Config::DEPTH_RISK_PROFILE_TOTAL_MASS_KG,
+    Config::DEPTH_RISK_PROFILE_DISPLACED_VOLUME_M3,
+    Config::DEPTH_WATER_DENSITY_KG_M3,
+    Config::DEPTH_RISK_PROFILE_PROJECTED_AREA_M2);
 SensorBuffers sensorBuffers;
 NimBLEServer* bleServer = nullptr;
 NimBLECharacteristic *depthCharacteristic = nullptr, *imuCharacteristic = nullptr;

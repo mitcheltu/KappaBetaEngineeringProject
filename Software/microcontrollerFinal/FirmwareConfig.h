@@ -24,6 +24,11 @@ constexpr uint32_t I2C_HZ = 400000;
 constexpr uint32_t DEPTH_SAMPLE_PERIOD_MS = 200; // PROVISIONAL/TBD; initial 5 Hz.
 constexpr float DEPTH_WATER_DENSITY_KG_M3 = 1000.0f; // PROVISIONAL/TBD freshwater.
 constexpr float FLUID_DENSITY_KG_M3 = DEPTH_WATER_DENSITY_KG_M3; // Legacy alias.
+// Provisional example profile for exercising depth-risk processing only.
+// Replace with measured wearer/profile inputs before interpreting the score.
+constexpr float DEPTH_RISK_PROFILE_TOTAL_MASS_KG = 75.0f;
+constexpr float DEPTH_RISK_PROFILE_DISPLACED_VOLUME_M3 = 0.070f;
+constexpr float DEPTH_RISK_PROFILE_PROJECTED_AREA_M2 = 0.70f;
 constexpr float BATTERY_DIVIDER_RATIO = 2.0f; // R5 = R6 = 100 kohm.
 
 // Temporary manual bench test: SOS -> blue LED 10s -> pump runs until Cancel.
@@ -55,12 +60,16 @@ constexpr uint32_t IMU_WINDOW_SAMPLES = IMU_SAMPLE_RATE_HZ * IMU_WINDOW_SECONDS;
 // and windows that have drifted materially beyond their intended duration.
 constexpr uint32_t IMU_SAMPLE_INTERVAL_TOLERANCE_US = 10000;
 constexpr uint32_t IMU_WINDOW_SPAN_TOLERANCE_US = 150000;
+constexpr uint32_t RISK_ROUND_MAX_IMU_ENDPOINT_SKEW_US =
+    IMU_PERIOD_MS * 1000 + IMU_SAMPLE_INTERVAL_TOLERANCE_US;
 constexpr uint32_t DEPTH_PERIOD_MS = DEPTH_SAMPLE_PERIOD_MS;
 constexpr uint32_t DEPTH_REGRESSION_WINDOW_MS = 1000;
 constexpr uint32_t DEPTH_STALE_AFTER_MS = 1000;
+constexpr uint32_t RISK_ROUND_MAX_DEPTH_ENDPOINT_SKEW_US =
+    DEPTH_SAMPLE_PERIOD_MS * 1000 + 100000;
 
-// Initial model/fusion settings. The evaluator reads the configured threshold;
-// the weights are ready for the gated fusion integration step.
+// Initial model/gate and later fusion settings. CNN controls the gate only;
+// component weights are used by the following fusion integration step.
 constexpr float CNN_SCORE_THRESHOLD = 0.5f;
 constexpr float DEPTH_FUSION_WEIGHT = 0.5f;
 constexpr float PPG_FUSION_WEIGHT = 0.5f;
@@ -74,6 +83,8 @@ constexpr uint8_t PPG_FIFO_READINGS_PER_SECOND =
     PPG_INTERNAL_SAMPLE_RATE_HZ / PPG_SAMPLE_AVERAGING;
 constexpr uint16_t PPG_ANALYSIS_WINDOW_READINGS = 100;
 constexpr uint16_t PPG_ANALYSIS_ADVANCE_READINGS = 25;
+constexpr uint32_t RISK_ROUND_MAX_PPG_WINDOW_SPAN_US = 4110000;
+constexpr uint32_t RISK_ROUND_MAX_PPG_ENDPOINT_SKEW_US = 100000;
 constexpr float PPG_DUMMY_RISK_SCORE = 0.0f; // Explicit placeholder; not a sensor-derived score.
 constexpr uint32_t IMU_BUFFER_CAPACITY = IMU_WINDOW_SAMPLES * 2;
 constexpr uint32_t DEPTH_BUFFER_CAPACITY = 32;

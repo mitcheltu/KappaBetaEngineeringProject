@@ -75,36 +75,37 @@ void acceptPpgSample(uint32_t red, uint32_t ir, uint64_t sampleTimeUs) {
   recordPpgSample(sampleTimeUs);
 }
 
-void processPpgSamples(bool analyzeWindow) {
+bool processPpgSamples(bool analyzeWindow) {
   static PpgReading snapshot[Config::PPG_ANALYSIS_WINDOW_READINGS]{};
   static uint32_t irWindow[Config::PPG_ANALYSIS_WINDOW_READINGS]{};
   static uint32_t redWindow[Config::PPG_ANALYSIS_WINDOW_READINGS]{};
 
   const uint64_t nowUs = static_cast<uint64_t>(esp_timer_get_time());
   PpgReading latest{};
-  if (!sensorBuffers.latestPpg(nowUs, latest)) return;
+  if (!sensorBuffers.latestPpg(nowUs, latest)) return false;
 
   if (!latest.valid || !ppgSignalAccepted(latest.red, latest.infrared)) {
     ppgSensor.invalidateAnalysis(latest.timestampUs);
     sensorBuffers.publishPpgAnalysis(ppgSensor.analysis());
-    return;
+    return false;
   }
-  if (!analyzeWindow) return;
+  if (!analyzeWindow) return false;
 
   const std::size_t copied = sensorBuffers.copyLatestPpg(
       nowUs, snapshot, Config::PPG_ANALYSIS_WINDOW_READINGS);
-  if (copied != Config::PPG_ANALYSIS_WINDOW_READINGS) return;
+  if (copied != Config::PPG_ANALYSIS_WINDOW_READINGS) return false;
 
   for (std::size_t i = 0; i < copied; ++i) {
     if (!snapshot[i].valid ||
         !ppgSignalAccepted(snapshot[i].red, snapshot[i].infrared)) {
       ppgSensor.invalidateAnalysis(latest.timestampUs);
       sensorBuffers.publishPpgAnalysis(ppgSensor.analysis());
-      return;
+      return false;
     }
     redWindow[i] = snapshot[i].red;
     irWindow[i] = snapshot[i].infrared;
   }
+  const uint64_t windowStartUs = snapshot[0].timestampUs;
   const uint64_t windowEndUs = snapshot[copied - 1].timestampUs;
 
   int32_t heartRate = 0, oxygenSaturation = 0;
@@ -118,12 +119,13 @@ void processPpgSamples(bool analyzeWindow) {
   const bool spo2Valid = validSpo2 != 0 && oxygenSaturation > 0 &&
                          oxygenSaturation <= 100;
   ppgSensor.publishAnalysis(heartRate, oxygenSaturation, hrValid, spo2Valid,
-                            windowEndUs);
+                            windowStartUs, windowEndUs);
   sensorBuffers.publishPpgAnalysis(ppgSensor.analysis());
   if (hrValid != previousHrValid || spo2Valid != previousSpo2Valid)
     logMessage(LogLevel::DEBUG, "PPG", "Estimate validity HR=%s (%ld BPM), SpO2=%s (%ld%%)",
                hrValid ? "valid" : "invalid", static_cast<long>(heartRate),
                spo2Valid ? "valid" : "invalid", static_cast<long>(oxygenSaturation));
+  return true;
 }
 
 float getPpgRisk() {

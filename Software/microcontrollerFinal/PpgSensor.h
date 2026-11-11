@@ -16,6 +16,8 @@ struct PpgAnalysis {
   int32_t heartRateBpm = 0;
   int32_t oxygenSaturationPercent = 0;
   uint64_t timestampUs = 0;
+  uint64_t inputStartUs = 0;
+  uint64_t inputEndUs = 0;
   bool heartRateValid = false;
   bool oxygenSaturationValid = false;
 };
@@ -23,6 +25,8 @@ struct PpgAnalysis {
 struct PpgRiskResult {
   float score = NAN;
   uint64_t timestampUs = 0;
+  uint64_t inputStartUs = 0;
+  uint64_t inputEndUs = 0;
   bool valid = false;
   bool usedDummy = false;
 };
@@ -58,9 +62,18 @@ class PpgSensor {
   void publishAnalysis(int32_t heartRateBpm, int32_t oxygenSaturationPercent,
                        bool heartRateValid, bool oxygenSaturationValid,
                        uint64_t timestampUs) {
+    publishAnalysis(heartRateBpm, oxygenSaturationPercent, heartRateValid,
+                    oxygenSaturationValid, timestampUs, timestampUs);
+  }
+
+  void publishAnalysis(int32_t heartRateBpm, int32_t oxygenSaturationPercent,
+                       bool heartRateValid, bool oxygenSaturationValid,
+                       uint64_t inputStartUs, uint64_t inputEndUs) {
     analysis_.heartRateBpm = heartRateBpm;
     analysis_.oxygenSaturationPercent = oxygenSaturationPercent;
-    analysis_.timestampUs = timestampUs;
+    analysis_.timestampUs = inputEndUs;
+    analysis_.inputStartUs = inputStartUs;
+    analysis_.inputEndUs = inputEndUs;
     analysis_.heartRateValid = heartRateValid;
     analysis_.oxygenSaturationValid = oxygenSaturationValid;
   }
@@ -69,6 +82,8 @@ class PpgSensor {
     analysis_.heartRateBpm = 0;
     analysis_.oxygenSaturationPercent = 0;
     analysis_.timestampUs = timestampUs;
+    analysis_.inputStartUs = 0;
+    analysis_.inputEndUs = 0;
     analysis_.heartRateValid = false;
     analysis_.oxygenSaturationValid = false;
   }
@@ -85,11 +100,16 @@ class PpgSensor {
 
   float dummyRiskScore() const { return dummyRiskScore_; }
 
-  PpgRiskResult riskResult(uint64_t timestampUs = 0) const {
+  PpgRiskResult riskResult(uint64_t timestampUs = 0,
+                           uint64_t inputStartUs = 0,
+                           uint64_t inputEndUs = 0,
+                           bool inputValid = true) const {
     PpgRiskResult result;
     result.score = dummyRiskScore_;
     result.timestampUs = timestampUs != 0 ? timestampUs : reading_.timestampUs;
-    result.valid = std::isfinite(dummyRiskScore_) &&
+    result.inputStartUs = inputStartUs;
+    result.inputEndUs = inputEndUs;
+    result.valid = inputValid && std::isfinite(dummyRiskScore_) &&
                    dummyRiskScore_ >= 0.0f && dummyRiskScore_ <= 1.0f;
     result.usedDummy = true;
     return result;

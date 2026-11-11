@@ -17,7 +17,9 @@
 #include "ImuSensor.h"
 #include "ImuWindow.h"
 #include "DepthSensor.h"
+#include "SinkRateEstimator.h"
 #include "PpgSensor.h"
+#include "RiskProcessing.h"
 #include "SensorBuffers.h"
 #include "HistoryProtocol.h"
 
@@ -31,6 +33,7 @@ extern ImuRisk::Window imuWindow;
 extern MAX30105 ppg;
 extern PpgSensor ppgSensor;
 extern DepthSensor depthSensor;
+extern SinkRateEstimator depthRiskEstimator;
 extern SensorBuffers sensorBuffers;
 extern NimBLEServer* bleServer;
 extern NimBLECharacteristic *depthCharacteristic, *imuCharacteristic;
@@ -62,7 +65,7 @@ bool writeRegister(uint8_t address, uint8_t reg, uint8_t value);
 void resetPpgWindow();
 bool clearPpgFifo();
 void acceptPpgSample(uint32_t red, uint32_t ir, uint64_t sampleTimeUs);
-void processPpgSamples(bool analyzeWindow);
+bool processPpgSamples(bool analyzeWindow);
 float getPpgRisk();
 void servicePpg();
 void initializePpg();
