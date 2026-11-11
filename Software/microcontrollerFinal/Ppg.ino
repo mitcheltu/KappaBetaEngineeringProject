@@ -112,15 +112,22 @@ bool processPpgSamples(bool analyzeWindow) {
   int8_t validHr = 0, validSpo2 = 0;
   const bool previousHrValid = ppgSensor.analysis().heartRateValid;
   const bool previousSpo2Valid = ppgSensor.analysis().oxygenSaturationValid;
+  const uint64_t analysisStartedUs = static_cast<uint64_t>(esp_timer_get_time());
   maxim_heart_rate_and_oxygen_saturation(irWindow,
       Config::PPG_ANALYSIS_WINDOW_READINGS, redWindow,
       &oxygenSaturation, &validSpo2, &heartRate, &validHr);
+  const uint64_t analysisDurationUs =
+      static_cast<uint64_t>(esp_timer_get_time()) - analysisStartedUs;
   const bool hrValid = validHr != 0 && heartRate > 0 && heartRate < 6553;
   const bool spo2Valid = validSpo2 != 0 && oxygenSaturation > 0 &&
                          oxygenSaturation <= 100;
   ppgSensor.publishAnalysis(heartRate, oxygenSaturation, hrValid, spo2Valid,
                             windowStartUs, windowEndUs);
   sensorBuffers.publishPpgAnalysis(ppgSensor.analysis());
+  logMessage(LogLevel::DEBUG, "PPG", "HR/SpO2 calculation duration=%llu us input=%llu..%llu us",
+      static_cast<unsigned long long>(analysisDurationUs),
+      static_cast<unsigned long long>(windowStartUs),
+      static_cast<unsigned long long>(windowEndUs));
   if (hrValid != previousHrValid || spo2Valid != previousSpo2Valid)
     logMessage(LogLevel::DEBUG, "PPG", "Estimate validity HR=%s (%ld BPM), SpO2=%s (%ld%%)",
                hrValid ? "valid" : "invalid", static_cast<long>(heartRate),

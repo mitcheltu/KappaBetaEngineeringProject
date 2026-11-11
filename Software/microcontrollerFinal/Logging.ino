@@ -148,6 +148,23 @@ void logStatus() {
       ppgReady.load(), ppgFresh,
       static_cast<unsigned long>(sensorErrors.load()),
       static_cast<unsigned long>(ppgOverflows.load()));
+  RiskRoundResult risk{};
+  const bool haveRisk = riskRoundStore.snapshot(risk);
+  const uint64_t riskAgeMs = haveRisk && nowUs >= risk.completedAtUs
+      ? (nowUs - risk.completedAtUs) / 1000ULL : UINT64_MAX;
+  if (haveRisk) {
+    logReply("RISK", "round=%lu age=%llums fresh=%d gate=%d CNN=%.3f/%d depth=%.3f/%d PPG=%.3f/%d dummy=%d fusion=%.3f complete=%d valid=%d",
+        static_cast<unsigned long>(risk.roundId),
+        static_cast<unsigned long long>(riskAgeMs),
+        riskAgeMs <= Config::RISK_RESULT_STALE_AFTER_MS,
+        risk.gateOpen, risk.cnn.score, risk.cnn.valid,
+        risk.depth.sinkRiskScore, risk.depth.valid,
+        risk.ppg.score, risk.ppg.valid,
+        risk.ppg.valid && risk.ppg.usedDummy,
+        risk.combinedRisk, risk.fusionComplete, risk.fusionValid);
+  } else {
+    logReply("RISK", "no risk round published");
+  }
   logReply("SYSTEM", "heap=%lu min_heap=%lu PSRAM_free=%lu BLE=%s live=%d history_flags=0x%04x history_record_drops=%lu log_dropped=%lu truncated=%lu",
       static_cast<unsigned long>(ESP.getFreeHeap()), static_cast<unsigned long>(ESP.getMinFreeHeap()),
       static_cast<unsigned long>(ESP.getFreePsram()),

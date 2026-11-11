@@ -121,9 +121,11 @@ as dummy by `PpgRiskResult::usedDummy`; no physiological risk mapping is
 implied.
 
 Initial fusion weights are configured by `Config::DEPTH_FUSION_WEIGHT` and
-`Config::PPG_FUSION_WEIGHT` (both 0.5). The runtime gate and aligned
-component-risk rounds are described below; weighted fusion remains Step 4 and
-actuator behavior is unchanged.
+`Config::PPG_FUSION_WEIGHT` (both 0.5). The combined score is
+`depth weight * depth sink-risk + PPG weight * PPG risk`; the CNN controls the
+gate and is not added to that score. A combined score is valid only when the
+gate is open and both weighted components have valid scores. Component
+validity, fusion completeness, and fusion validity are reported separately.
 
 ## Gated aligned risk processing
 
@@ -137,21 +139,36 @@ model weights are added, so the gate will remain closed in this base firmware.
 With the gate open, the task waits for each new accepted 100-reading PPG
 window, advanced by 25 readings, and uses its endpoint as target time `T`. It
 copies the latest eligible IMU, depth, and PPG inputs at or before `T`, then
-records their scores and input intervals under one round ID. The depth
-component uses the existing one-second sink-rate estimator; the PPG component
-uses the explicitly marked dummy score. After two consecutive valid negative
-CNN results from full rounds, the gate closes and processing returns to
-CNN-only inference. No weighted combined score or actuator action is connected
-in this step.
+publishes their scores, input intervals, validity, and completion time under
+one round ID. The depth component uses the existing one-second sink-rate
+estimator; the PPG component uses the explicitly marked dummy score. After two
+consecutive valid negative CNN results from full rounds, the gate closes and
+processing returns to CNN-only inference. Existing actuator behavior does not
+consume the combined risk score.
+
+The latest round is available through the read/notify BLE risk characteristic
+(`Config::RISK_UUID`). Its 96-byte little-endian payload contains the round ID,
+status flags, target/completion timestamps, each component's input interval,
+and CNN, depth, PPG, and combined scores. `RESULT_FRESH` means the result is no
+older than `Config::RISK_RESULT_STALE_AFTER_MS`; `NEW_RESULT` marks a round ID
+change since the previous telemetry packet. `CNN_VALID`, `DEPTH_VALID`,
+`PPG_VALID`, `FUSION_COMPLETE`, `FUSION_VALID`, `GATE_OPEN`, and
+`PPG_DUMMY_USED` distinguish the component and fused-result states. Invalid
+scores are serialized as NaN. All timestamps are microseconds since boot.
+
+DEBUG diagnostics report CNN inference duration, PPG HR/SpO2 calculation
+duration, and total risk-round duration, along with component intervals and
+fusion state. These software timings are for inspection; PPG's impact on
+acquisition timing still needs measurement on the ESP32 hardware.
 
 The depth estimator currently uses configurable example profile inputs in
 `FirmwareConfig.h` (75 kg, 0.070 m³ displaced volume and 0.70 m² projected
 area). They are provisional placeholders, not measured or calibrated wearer
 values; replace them before interpreting depth scores.
 
-Host-side strict compilation and a fake-I²C state-machine test pass. Full ESP32
-compilation requires the pinned ESP32 core and libraries plus `arduino-cli`; an
-ESP32 board has not yet been used to measure the actual 50 ms IMU cadence.
+Compile for the ESP32-S3 using the command in the setup section. A successful
+build cannot verify live BLE delivery or actual sensor scheduling; the 50 ms
+IMU cadence and PPG acquisition impact still need hardware measurement.
 
 ## Temporary blue LED countdown
 

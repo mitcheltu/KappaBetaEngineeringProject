@@ -77,6 +77,7 @@ void processingTask(void*) {
   static bool imuTimingGapReported = false;
   struct CnnEvaluation {
     ImuRisk::EvaluationResult result{};
+    uint64_t durationUs = 0;
     bool inferenceRan = false;
   };
 
@@ -139,7 +140,10 @@ void processingTask(void*) {
       return evaluation;
     }
 
+    const uint64_t inferenceStartedUs = static_cast<uint64_t>(esp_timer_get_time());
     imuRiskEvaluator.evaluate(imuWindow.tensor(), inputStartUs, inputEndUs);
+    evaluation.durationUs = static_cast<uint64_t>(esp_timer_get_time()) -
+                            inferenceStartedUs;
     evaluation.result = imuRiskEvaluator.result();
     evaluation.inferenceRan = true;
     cachedCnnAvailable = true;
@@ -188,6 +192,7 @@ void processingTask(void*) {
   auto runRiskRound = [&](uint64_t targetUs) -> bool {
     if (!gate.isOpen() || targetUs == 0 || targetUs <= lastRoundTargetUs)
       return false;
+    const uint64_t roundStartedUs = static_cast<uint64_t>(esp_timer_get_time());
 
     const std::size_t ppgCopied = sensorBuffers.copyLatestPpg(
         targetUs, ppgSnapshot, Config::PPG_ANALYSIS_WINDOW_READINGS);
@@ -223,6 +228,7 @@ void processingTask(void*) {
     round.roundId = ++nextRoundId;
     round.targetUs = targetUs;
     round.cnn = cnn.result;
+    round.cnnDurationUs = cnn.durationUs;
     round.ppg = ppgSensor.riskResult(targetUs, ppgStartUs, ppgEndUs, true);
 
     DepthReading depthReading{};
@@ -249,21 +255,48 @@ void processingTask(void*) {
       }
     }
 
+    round.gateOpen = gate.isOpen();
+    const bool depthScoreValid = round.depth.valid &&
+        std::isfinite(round.depth.sinkRiskScore) &&
+        round.depth.sinkRiskScore >= 0.0f && round.depth.sinkRiskScore <= 1.0f;
+    const bool ppgScoreValid = round.ppg.valid && std::isfinite(round.ppg.score) &&
+        round.ppg.score >= 0.0f && round.ppg.score <= 1.0f;
+    round.fusionComplete = depthScoreValid && ppgScoreValid;
+    if (round.gateOpen && round.fusionComplete) {
+      const float combined = Config::DEPTH_FUSION_WEIGHT *
+                                 round.depth.sinkRiskScore +
+                             Config::PPG_FUSION_WEIGHT * round.ppg.score;
+      if (std::isfinite(combined) && combined >= 0.0f && combined <= 1.0f) {
+        round.combinedRisk = combined;
+        round.fusionValid = true;
+      }
+    }
+
     lastRoundTargetUs = targetUs;
+    round.completedAtUs = static_cast<uint64_t>(esp_timer_get_time());
+    round.roundDurationUs = round.completedAtUs - roundStartedUs;
+    if (!riskRoundStore.publish(round))
+      logMessage(LogLevel::ERROR, "ROUND", "Could not publish risk round %lu: result store unavailable.",
+          static_cast<unsigned long>(round.roundId));
     logMessage(LogLevel::DEBUG, "ROUND",
-        "id=%lu T=%llu CNN=%.3f/%u [%llu..%llu] depth=%.3f/%u [%llu..%llu] PPG=%.3f/%u dummy=%u [%llu..%llu]",
+        "id=%lu T=%llu gate=%u CNN=%.3f/%u [%llu..%llu] %llu us depth=%.3f/%u [%llu..%llu] PPG=%.3f/%u dummy=%u [%llu..%llu] fusion=%.3f complete=%u valid=%u round=%llu us",
         static_cast<unsigned long>(round.roundId),
-        static_cast<unsigned long long>(round.targetUs), round.cnn.score,
+        static_cast<unsigned long long>(round.targetUs),
+        static_cast<unsigned>(round.gateOpen), round.cnn.score,
         static_cast<unsigned>(round.cnn.valid),
         static_cast<unsigned long long>(round.cnn.inputStartUs),
         static_cast<unsigned long long>(round.cnn.inputEndUs),
+        static_cast<unsigned long long>(round.cnnDurationUs),
         round.depth.sinkRiskScore, static_cast<unsigned>(round.depth.valid),
         static_cast<unsigned long long>(round.depth.inputStartUs),
         static_cast<unsigned long long>(round.depth.inputEndUs),
         round.ppg.score, static_cast<unsigned>(round.ppg.valid),
         static_cast<unsigned>(round.ppg.usedDummy),
         static_cast<unsigned long long>(round.ppg.inputStartUs),
-        static_cast<unsigned long long>(round.ppg.inputEndUs));
+        static_cast<unsigned long long>(round.ppg.inputEndUs),
+        round.combinedRisk, static_cast<unsigned>(round.fusionComplete),
+        static_cast<unsigned>(round.fusionValid),
+        static_cast<unsigned long long>(round.roundDurationUs));
     return true;
   };
 

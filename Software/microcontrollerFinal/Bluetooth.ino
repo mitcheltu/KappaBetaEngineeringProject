@@ -41,6 +41,8 @@ void initializeBle() {
   imuCharacteristic = service->createCharacteristic(Config::IMU_UUID, properties, 20);
   ppgCharacteristic = service->createCharacteristic(Config::PPG_UUID, properties, 20);
   systemCharacteristic = service->createCharacteristic(Config::SYSTEM_UUID, properties, 20);
+  riskCharacteristic = service->createCharacteristic(Config::RISK_UUID, properties,
+                                                        sizeof(RiskPacket));
   NimBLECharacteristic* zero = service->createCharacteristic(Config::ZERO_DEPTH_UUID, NIMBLE_PROPERTY::WRITE, 1);
   zero->setCallbacks(&zeroCallbacks);
   createHistoryCharacteristics(service);
@@ -55,8 +57,9 @@ void initializeBle() {
       advertised ? "started" : "failed", Config::SERVICE_UUID);
 }
 
-void sendPacket(NimBLECharacteristic* characteristic, const void* packet) {
-  characteristic->setValue(static_cast<const uint8_t*>(packet), 20);
+void sendPacket(NimBLECharacteristic* characteristic, const void* packet,
+                size_t bytes) {
+  characteristic->setValue(static_cast<const uint8_t*>(packet), bytes);
   const uint16_t connection = historyConnectionHandle();
   if (connection != BLE_HS_CONN_HANDLE_NONE && historyLiveEnabled()) {
     if (!characteristic->notify(connection)) {
@@ -75,6 +78,8 @@ void sendPacket(NimBLECharacteristic* characteristic, const void* packet) {
 
 void publishTelemetry(uint32_t now) {
   static uint16_t sequence = 0;
+  static uint32_t lastRiskRoundId = 0;
+  static bool havePublishedRiskRound = false;
   const uint64_t nowUs = static_cast<uint64_t>(esp_timer_get_time());
   const PacketHeader header{1, 0, sequence++, now};
   DepthReading depthReading{};
@@ -146,4 +151,47 @@ void publishTelemetry(uint32_t now) {
   recordHistory(4, system.header.flags, esp_timer_get_time(), &system.batteryMv, 12);
   sendPacket(depthCharacteristic, &depth); sendPacket(imuCharacteristic, &motion);
   sendPacket(ppgCharacteristic, &optical); sendPacket(systemCharacteristic, &system);
+
+  RiskPacket risk{};
+  risk.header = header;
+  risk.cnnScore = risk.depthRiskScore = risk.ppgRiskScore =
+      risk.combinedRisk = NAN;
+  RiskRoundResult latestRisk{};
+  if (riskRoundStore.snapshot(latestRisk)) {
+    risk.roundId = latestRisk.roundId;
+    risk.targetUs = latestRisk.targetUs;
+    risk.completedAtUs = latestRisk.completedAtUs;
+    risk.cnnStartUs = latestRisk.cnn.inputStartUs;
+    risk.cnnEndUs = latestRisk.cnn.inputEndUs;
+    risk.depthStartUs = latestRisk.depth.inputStartUs;
+    risk.depthEndUs = latestRisk.depth.inputEndUs;
+    risk.ppgStartUs = latestRisk.ppg.inputStartUs;
+    risk.ppgEndUs = latestRisk.ppg.inputEndUs;
+    risk.cnnScore = latestRisk.cnn.valid ? latestRisk.cnn.score : NAN;
+    risk.depthRiskScore = latestRisk.depth.valid
+        ? latestRisk.depth.sinkRiskScore : NAN;
+    risk.ppgRiskScore = latestRisk.ppg.valid ? latestRisk.ppg.score : NAN;
+    risk.combinedRisk = latestRisk.fusionValid
+        ? latestRisk.combinedRisk : NAN;
+    risk.statusFlags |= RiskPacketFlags::RESULT_AVAILABLE;
+    if (nowUs >= latestRisk.completedAtUs &&
+        nowUs - latestRisk.completedAtUs <=
+            static_cast<uint64_t>(Config::RISK_RESULT_STALE_AFTER_MS) * 1000ULL)
+      risk.statusFlags |= RiskPacketFlags::RESULT_FRESH;
+    if (latestRisk.gateOpen) risk.statusFlags |= RiskPacketFlags::GATE_OPEN;
+    if (latestRisk.cnn.valid) risk.statusFlags |= RiskPacketFlags::CNN_VALID;
+    if (latestRisk.depth.valid) risk.statusFlags |= RiskPacketFlags::DEPTH_VALID;
+    if (latestRisk.ppg.valid) risk.statusFlags |= RiskPacketFlags::PPG_VALID;
+    if (latestRisk.fusionComplete)
+      risk.statusFlags |= RiskPacketFlags::FUSION_COMPLETE;
+    if (latestRisk.fusionValid)
+      risk.statusFlags |= RiskPacketFlags::FUSION_VALID;
+    if (latestRisk.ppg.valid && latestRisk.ppg.usedDummy)
+      risk.statusFlags |= RiskPacketFlags::PPG_DUMMY_USED;
+    if (!havePublishedRiskRound || latestRisk.roundId != lastRiskRoundId)
+      risk.statusFlags |= RiskPacketFlags::NEW_RESULT;
+    lastRiskRoundId = latestRisk.roundId;
+    havePublishedRiskRound = true;
+  }
+  sendPacket(riskCharacteristic, &risk, sizeof(risk));
 }
