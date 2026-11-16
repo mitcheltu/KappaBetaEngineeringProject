@@ -20,7 +20,7 @@ void processCommand(const char* command) {
     logReply("IMU", "clear calibration queued");
     return;
   }
-  if (strcmp(command, "off") == 0) { stopRequested.store(true); logReply("COMMAND", "blue LED/pump stop requested"); return; }
+  if (strcmp(command, "off") == 0) { stopRequested.store(true); logReply("COMMAND", "vibration and pump stop requested"); return; }
   if (strcmp(command, "sos") == 0) {
     const uint32_t controls = actuatorState.load();
     const uint32_t sample = batteryDiagnostic.load();
@@ -40,7 +40,8 @@ void processCommand(const char* command) {
   }
   if (strcmp(command, "help") != 0) logReply("COMMAND", "unknown command (type help)");
   logReply("HELP", "newline commands: status | sos | off | z | calibrate gyro | clear calibration | log error/warn/info/debug/off | help");
-  logReply("HELP", "SOS needs battery 3400..4350 mV and released Cancel; release/repress SOS after an abort");
+  logReply("HELP", "SOS: vibrate 2s, ramp pump 2s, then run; needs battery 3400..4350 mV and released Cancel");
+  logReply("HELP", "Release/repress physical SOS after an abort; off stops vibration and pump");
 }
 
 void serviceSerial() {
