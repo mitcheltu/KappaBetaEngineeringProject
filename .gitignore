@@ -23,6 +23,9 @@ yarn-error.log*
 /tmp/
 /Software/WebApp/audit/
 /Software/WebApp/design/
+/Software/microcontrollerFinal/imuDeployCNN/build/
+/Software/microcontrollerFinal/imuDeployCNN/managed_components/
+/Software/microcontrollerFinal/imuDeployCNN/sdkconfig
 
 # Ignore Markdown files except README.md files.
 *.md

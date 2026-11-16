@@ -30,6 +30,11 @@ public:
     setThreshold(threshold);
   }
 
+  // Bind TFLite Micro to caller-owned, 16-byte-aligned memory. The arena must
+  // remain allocated for the lifetime of the interpreter.
+  bool begin(void* tensorArena, size_t tensorArenaBytes);
+  bool isReady() const { return ready_; }
+
   // Returns 1 when the unsafe score meets or exceeds the threshold; otherwise 0.
   uint8_t evaluate(const ImuTensor& tensor);
   uint8_t evaluate(const ImuTensor& tensor, uint64_t inputStartUs,
@@ -43,11 +48,12 @@ public:
   bool setThreshold(float threshold);
 
 private:
-  // Replace this body with the deployed 1D-CNN forward pass and model weights.
+  // Run the deployed CNN after applying its exported input normalization.
   float runCnn(const ImuTensor& tensor);
 
   float threshold_ = Config::CNN_SCORE_THRESHOLD;
   EvaluationResult result_{};
+  bool ready_ = false;
 };
 
 } // namespace ImuRisk

@@ -1,43 +1,35 @@
-# microcontrollerFinal Arduino sketch
+# microcontrollerFinal firmware
 
-Open **microcontrollerFinal.ino** in Arduino IDE. This folder contains the
-final integration sketch and all required tabs and headers. Keep the folder
-named `microcontrollerFinal` and keep these files together.
+The firmware uses the Arduino framework and the Espressif TensorFlow Lite
+Micro component. Build it through the ESP-IDF project in `imuDeployCNN`; the
+ordinary Arduino IDE/CLI build does not resolve the TFLite Micro component.
 
-## Setup and upload
+## Build and upload
 
-1. In Boards Manager, install **esp32 by Espressif Systems 3.3.7**.
-2. In Library Manager, install the following libraries:
+Use ESP-IDF **v5.5.2**. The project manifest pins Arduino-ESP32 **3.3.7** and
+Espressif `esp-tflite-micro` **1.4.1**. ESP-IDF Component Manager downloads
+those components and the TFLM dependencies during project configuration.
 
-   | Library | Version |
-   |---|---|
-   | BlueRobotics MS5837 Library | 1.1.1 |
-   | SparkFun BMI270 Arduino Library | 1.0.3 |
-   | SparkFun MAX3010x Pulse and Proximity Sensor Library | 1.1.2 |
-   | NimBLE-Arduino | 2.5.2 |
+Install the Arduino libraries listed in `libraries.txt`. The build reads them
+from `~/Documents/Arduino/libraries` by default. Set `ARDUINO_LIBRARIES_DIR`
+if they are installed elsewhere; the CMake component checks the library
+versions it compiles.
 
-3. Select **ESP32S3 Dev Module** with these settings for the
-   ESP32-S3-DevKitC-1-N8R8:
+From the repository root:
 
-   | Setting | Value |
-   |---|---|
-   | Flash Size | 8 MB |
-   | Partition Scheme | Default 8MB |
-   | PSRAM | OPI PSRAM |
-   | USB CDC On Boot | Enabled |
-
-4. Connect the board, select its port, and click **Verify**, then **Upload**.
-5. Open Serial Monitor at **115200 baud**, with **Newline** enabled, for diagnostics.
-
-`libraries.txt` lists the same pinned libraries for Wokwi; Arduino IDE libraries
-are installed through Library Manager. All `.ino` tabs compile together, so
-upload the primary sketch once rather than uploading individual tabs.
-
-For Arduino CLI, compile with:
-
-```text
-arduino-cli compile --fqbn esp32:esp32:esp32s3:FlashSize=8M,PartitionScheme=default_8MB,PSRAM=opi,CDCOnBoot=cdc Software/microcontrollerFinal
+```sh
+cd Software/microcontrollerFinal/imuDeployCNN
+idf.py set-target esp32s3
+idf.py reconfigure
+idf.py build
+idf.py -p <PORT> flash monitor
 ```
+
+The project defaults target the ESP32-S3-DevKitC-1-N8R8: 8 MB flash, OPI PSRAM,
+the 8 MB partition table and USB CDC on boot. All firmware `.ino` tabs are
+compiled into this IDF application. See
+[imuDeployCNN/README.md](imuDeployCNN/README.md) for the inference runtime
+and input contract.
 
 See the [wiring and firmware guide](../../Electrical/README.md) for pin
 assignments, power setup, and manual pump-test behavior. The
@@ -53,8 +45,16 @@ seconds) into `ImuRisk::Window` in channel order `[ax, ay, az, gx, gy, gz]`,
 then releases the buffer lock before evaluation. It evaluates only a complete,
 valid window. Timestamped readings and window-based risk results carry
 monotonic microsecond times; the legacy millisecond timestamp remains for
-existing telemetry. The CNN threshold is configured by
-`Config::CNN_SCORE_THRESHOLD` (initially 0.5).
+existing telemetry. The CNN threshold comes from the model deployment bundle's
+`kImuGateThreshold` (currently 0.9981237054).
+
+At startup, the evaluator initializes TensorFlow Lite Micro with the model's
+float32 FlatBuffer and the first reserved PSRAM workspace as its tensor arena.
+It registers the model's required built-in operators, checks the `[1, 60, 6]`
+input and `[1, 1]` output, then applies the exported per-axis normalization
+before each invocation. The training bundle does not document sensor units;
+the firmware currently passes its BMI270 values in g and degrees/second as the
+model's `raw_value`, without unit conversion.
 
 The current BMI270 hardware configuration remains 100 Hz while firmware
 sampling is 20 Hz. This first integration uses the latest sensor register value
@@ -133,8 +133,8 @@ While the gate is closed, the processing task evaluates each newly available
 valid IMU window once. A valid CNN score at or above
 `Config::CNN_SCORE_THRESHOLD` opens the gate. If that exact IMU window becomes
 the opening round's CNN input, its score is reused. Invalid windows and scores
-are ignored. The CNN remains a placeholder that returns 0.0 until trained
-model weights are added, so the gate will remain closed in this base firmware.
+are ignored. If the TFLite Micro runtime or PSRAM arena is unavailable, the
+evaluator returns an invalid score and the gate remains closed.
 
 With the gate open, the task waits for each new accepted 100-reading PPG
 window, advanced by 25 readings, and uses its endpoint as target time `T`. It

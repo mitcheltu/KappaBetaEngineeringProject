@@ -1,6 +1,8 @@
 #pragma once
 #include <stdint.h>
 
+#include "imuDeployCNN/imu_inference_config.h"
+
 // ESP32-S3-DevKitC-1-N8R8 GPIO numbers, not physical header positions.
 // Rev F wiring, with the user-requested pump replacing the solenoid on GPIO16.
 // Electrical/README.md lists the pin and power assumptions still to validate.
@@ -50,7 +52,7 @@ constexpr uint32_t PPG_MIN_IR = 50000, PPG_MAX_ADC = 262000;
 constexpr uint32_t TELEMETRY_PERIOD_MS = 200;
 constexpr uint32_t RISK_RESULT_STALE_AFTER_MS = 2000;
 constexpr uint32_t HISTORY_BYTES = 4 * 1024 * 1024;
-constexpr uint32_t ML_WORKSPACE_BYTES = 1024 * 1024; // Two future model workspaces.
+constexpr uint32_t ML_WORKSPACE_BYTES = 1024 * 1024; // Per-model tensor arena.
 constexpr uint32_t PSRAM_HEADROOM_BYTES = 1024 * 1024;
 // Final IMU model input: 20 Hz * 3 seconds = 60 samples.
 constexpr uint32_t IMU_SAMPLE_RATE_HZ = 20;
@@ -71,7 +73,7 @@ constexpr uint32_t RISK_ROUND_MAX_DEPTH_ENDPOINT_SKEW_US =
 
 // Initial model/gate and fusion settings. CNN controls the gate only; it is
 // not added numerically to the depth/PPG weighted score.
-constexpr float CNN_SCORE_THRESHOLD = 0.5f;
+constexpr float CNN_SCORE_THRESHOLD = kImuGateThreshold;
 constexpr float DEPTH_FUSION_WEIGHT = 0.5f;
 constexpr float PPG_FUSION_WEIGHT = 0.5f;
 
