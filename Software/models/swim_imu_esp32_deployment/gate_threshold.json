@@ -1,0 +1,20 @@
+{
+  "threshold": 0.9981237053871155,
+  "learning_rate": 0.001,
+  "epochs": 43,
+  "loss": "binary_crossentropy",
+  "window_samples": 60,
+  "window_stride_samples": 20,
+  "axes": [
+    "ax",
+    "ay",
+    "az",
+    "gx",
+    "gy",
+    "gz"
+  ],
+  "positive_sources": {
+    "active": "threshold-selected high-motion proxy windows; not independently verified danger labels",
+    "passive": "all full windows from source-labeled PassiveDrowning episodes; not clinical ground truth"
+  }
+}

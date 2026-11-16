@@ -1,0 +1,54 @@
+{
+  "source_model": "imu_cnn_bce.keras",
+  "deployment_model": "imu_cnn_bce.tflite",
+  "format": "TensorFlow Lite float32 FlatBuffer",
+  "input_shape": [
+    1,
+    60,
+    6
+  ],
+  "input_dtype": "<class 'numpy.float32'>",
+  "output_shape": [
+    1,
+    1
+  ],
+  "output_dtype": "<class 'numpy.float32'>",
+  "keras_tflite_max_abs_error_on_4_random_inputs": 0.0,
+  "tflite_ops": [
+    "CONV_2D",
+    "EXPAND_DIMS",
+    "FULLY_CONNECTED",
+    "LOGISTIC",
+    "MAX_POOL_2D",
+    "MEAN",
+    "RESHAPE"
+  ],
+  "model_bytes": 34184,
+  "threshold": 0.9981237053871155,
+  "window_samples": 60,
+  "window_stride_samples": 20,
+  "axis_order": [
+    "ax",
+    "ay",
+    "az",
+    "gx",
+    "gy",
+    "gz"
+  ],
+  "normalization_mean": [
+    -3.36669659614563,
+    -2.471470355987549,
+    3.676813840866089,
+    -0.46695244312286377,
+    0.08456569164991379,
+    -0.08428220450878143
+  ],
+  "normalization_scale": [
+    8.515253067016602,
+    7.748116970062256,
+    6.513826370239258,
+    2.8513646125793457,
+    2.5157957077026367,
+    2.566934108734131
+  ]
+}
