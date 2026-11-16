@@ -18,34 +18,37 @@ void initializeDepth() {
 
 void serviceDepth() {
   const DepthServiceEvent event = depthSensor.service();
-  if (event == DepthServiceEvent::NONE) return;
-
   if (event == DepthServiceEvent::SAMPLE_PUBLISHED) {
+    // Ordinary samples are finalized by lookahead; boundary markers and
+    // unclassifiable samples use this event too and retain their timestamps.
     sensorBuffers.pushDepth(depthSensor.reading());
     recordDepthSample();
-    return;
-  }
-
-  if (event == DepthServiceEvent::SURFACE_ZERO_PUBLISHED) {
+  } else if (event == DepthServiceEvent::SURFACE_ZERO_PUBLISHED) {
     sensorBuffers.pushDepth(depthSensor.reading());
     logMessage(LogLevel::INFO, "DEPTH",
                "Surface zero=%.1fPa; sensor must be at the water surface",
                depthSensor.reading().surfacePressurePa);
     recordSurfaceZero();
-    return;
+  } else if (event != DepthServiceEvent::NONE) {
+    const DepthReading& reading = depthSensor.reading();
+    sensorBuffers.pushDepth(reading);
+    logMessage(LogLevel::WARN,
+               "DEPTH",
+               "MS5837 %s: pressure=%.1fPa temperature=%.2fC quality=0x%04x",
+               event == DepthServiceEvent::SURFACE_ZERO_FAILED ? "surface zero failed"
+                                                                : "sample invalid",
+               reading.pressurePa, reading.temperatureC, unsigned(reading.qualityFlags));
+    ++sensorErrors;
+    depthReady = false;
+    if (event == DepthServiceEvent::SURFACE_ZERO_FAILED) recordSurfaceZero();
   }
 
-  const DepthReading& reading = depthSensor.reading();
-  sensorBuffers.pushDepth(reading);
-  logMessage(LogLevel::WARN,
-             "DEPTH",
-             "MS5837 %s: pressure=%.1fPa temperature=%.2fC quality=0x%04x",
-             event == DepthServiceEvent::SURFACE_ZERO_FAILED ? "surface zero failed"
-                                                              : "sample invalid",
-             reading.pressurePa, reading.temperatureC, unsigned(reading.qualityFlags));
-  ++sensorErrors;
-  depthReady = false;
-  if (event == DepthServiceEvent::SURFACE_ZERO_FAILED) recordSurfaceZero();
+  const uint64_t nowUs = static_cast<uint64_t>(esp_timer_get_time());
+  const bool depthWaitSatisfied = sensorBuffers.advanceDepthFinalizedThrough(
+      depthSensor.finalizedThroughUs(nowUs));
+  if (processingTaskHandle && depthWaitSatisfied)
+    xTaskNotify(processingTaskHandle, PROCESSING_NOTIFY_DEPTH_FINALIZED,
+                eSetBits);
 }
 
 void serviceDepthZero() {

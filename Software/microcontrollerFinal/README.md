@@ -70,6 +70,8 @@ The `sensor-acquisition` task initializes the devices and owns the shared I²C
 bus. It services the PPG FIFO every 5 ms, advances depth conversion without
 waiting, and samples the IMU every 50 ms. Its timestamped
 rolling buffers hold 120 IMU samples, 32 depth samples and 200 PPG readings.
+At the configured rates, those buffers span about 6 s, 3.1 s and 8 s,
+respectively; the 200 ms depth lookahead fits within each sensor's history.
 The processing task and telemetry copy from these buffers under a short mutex;
 they do not hold it while evaluating a window. The regular Arduino loop handles
 serial commands, telemetry, history transfer and diagnostics.
@@ -87,8 +89,8 @@ so the history ring remains single-owner in the main loop.
 
 ## Nonblocking depth sampling
 
-The MS5837-30BA depth path keeps the initial cadence at 5 Hz
-(`DEPTH_SAMPLE_PERIOD_MS = 200`). `DepthSensor::service()` is called by the
+The MS5837-30BA depth path targets 10 Hz
+(`DEPTH_SAMPLE_PERIOD_MS = 100`). `DepthSensor::service()` is called by the
 acquisition task and advances three states: idle, waiting for the 20 ms
 pressure-conversion deadline, and waiting for the 20 ms temperature-conversion
 deadline. It returns immediately between conversion steps, so PPG service and
@@ -98,16 +100,43 @@ The official BlueRobotics MS5837 v1.1.1 `read()` method does not expose its
 conversion or calibration primitives. The depth module therefore schedules the
 same D1/D2 commands directly, validates every I²C transfer and PROM CRC, and
 uses the library's MS5837-30BA compensation formulas before publishing a
-sample. Failed or partial conversions never replace the current valid sample.
+sample. Failed or partial conversions are published as invalid events; any
+waiting candidates are first released as unclassifiable and filter context is
+reset.
 
 The `z` command queues a fresh pressure/temperature conversion through the
 same state machine. A surface baseline is changed only after that conversion
-passes the validity checks. The existing Hampel and EMA preprocessing remains
-unchanged; the slope regression window is now one second
-(`Config::DEPTH_REGRESSION_WINDOW_MS`). The 5 Hz cadence and BLE packet formats
-remain unchanged. Depth readings expose the rate input interval, and
-`SinkRateEstimator::compare()` returns the associated timestamped score and
-validity.
+passes the validity checks. The slope regression window is one second
+(`Config::DEPTH_REGRESSION_WINDOW_MS`). Depth readings expose the rate input
+interval, and `SinkRateEstimator::compare()` returns the associated timestamped
+score and validity. BLE packet formats are unchanged.
+
+### Delayed Hampel filter contract
+
+The weighted Hampel filter uses five previous readings, the current reading,
+and two future readings (`DEPTH_HAMPEL_WINDOW_READINGS = 8`). Previous readings
+have weight 1; current and future readings have weight 2 for both the weighted
+median and weighted MAD. At the 10 Hz target cadence, each normal sample is
+classified after two future readings arrive, for about 200 ms of processing
+delay. Finalized readings retain their acquisition timestamps.
+
+During startup or after a filter-context reset, use the available previous
+readings up to five and mark the result with `FILTER_WARMUP`; lack of a full
+past window alone does not reject a sample. Still wait for two future readings
+before normal classification. On a conversion failure or a dive boundary
+(surface-zero, start, or stop), flush pending readings in timestamp order as
+unclassifiable with `FILTER_WARMUP`, exclude them from smoothing, slope, and
+fusion, then reset filter context. Do not carry Hampel, EMA, or regression
+history across that boundary. A timestamped invalid boundary marker prevents
+fusion from falling back into the previous dive segment. The surface-zero
+calibration reading is accepted immediately as the initial zero-depth point
+and seeds the new histories. Raw valid readings remain in raw history whether
+the filter accepts or rejects them.
+
+The acquisition task continues servicing other sensors while depth readings
+wait for lookahead. Finalized accepted and rejected readings are released in
+timestamp order; rejected readings remain in raw history but do not update EMA
+or slope history.
 
 ## PPG interface and initial risk settings
 
@@ -172,9 +201,10 @@ change since the previous telemetry packet. `CNN_VALID`, `DEPTH_VALID`,
 scores are serialized as NaN. All timestamps are microseconds since boot.
 
 DEBUG diagnostics report CNN inference duration, PPG HR/SpO2 calculation
-duration, and total risk-round duration, along with component intervals and
-fusion state. These software timings are for inspection; PPG's impact on
-acquisition timing still needs measurement on the ESP32 hardware.
+duration, and total risk-round duration including any wait for depth
+finalization, along with component intervals and fusion state. These software
+timings are for inspection; PPG's impact on acquisition timing still needs
+measurement on the ESP32 hardware.
 
 The depth estimator currently uses configurable example profile inputs in
 `FirmwareConfig.h` (75 kg, 0.070 m³ displaced volume and 0.70 m² projected

@@ -25,9 +25,16 @@ constexpr int BATTERY_ADC = 1; // ADC1, midpoint of R5/R6 (100k/100k).
 constexpr uint8_t IMU_ADDRESS = 0x68, PPG_ADDRESS = 0x57, DEPTH_ADDRESS = 0x76;
 constexpr uint32_t I2C_HZ = 400000;
 // The official BlueRobotics MS5837 1.1.1 protocol is pinned by libraries.txt.
-// Keep the initial depth cadence at 5 Hz while conversions are serviced
-// asynchronously between IMU and PPG work.
-constexpr uint32_t DEPTH_SAMPLE_PERIOD_MS = 200; // PROVISIONAL/TBD; initial 5 Hz.
+// Depth conversions are serviced asynchronously between IMU and PPG work.
+constexpr uint32_t DEPTH_SAMPLE_PERIOD_MS = 100; // 10 Hz target cadence.
+constexpr uint8_t DEPTH_HAMPEL_PREVIOUS_READINGS = 5;
+constexpr uint8_t DEPTH_HAMPEL_FUTURE_READINGS = 2;
+constexpr uint8_t DEPTH_HAMPEL_WINDOW_READINGS =
+    DEPTH_HAMPEL_PREVIOUS_READINGS + 1 + DEPTH_HAMPEL_FUTURE_READINGS;
+constexpr uint32_t DEPTH_FILTER_DELAY_MS = 200;
+static_assert(DEPTH_FILTER_DELAY_MS ==
+                  DEPTH_HAMPEL_FUTURE_READINGS * DEPTH_SAMPLE_PERIOD_MS,
+              "Depth filter delay must cover the configured future readings.");
 constexpr float DEPTH_WATER_DENSITY_KG_M3 = 1000.0f; // PROVISIONAL/TBD freshwater.
 constexpr float FLUID_DENSITY_KG_M3 = DEPTH_WATER_DENSITY_KG_M3; // Legacy alias.
 // Provisional example profile for exercising depth-risk processing only.
@@ -70,8 +77,13 @@ constexpr uint32_t RISK_ROUND_MAX_IMU_ENDPOINT_SKEW_US =
 constexpr uint32_t DEPTH_PERIOD_MS = DEPTH_SAMPLE_PERIOD_MS;
 constexpr uint32_t DEPTH_REGRESSION_WINDOW_MS = 1000;
 constexpr uint32_t DEPTH_STALE_AFTER_MS = 1000;
+// Sample-time tolerance; the 200 ms processing delay is handled by the depth
+// finalized-through watermark, so it is not added to this skew allowance.
 constexpr uint32_t RISK_ROUND_MAX_DEPTH_ENDPOINT_SKEW_US =
     DEPTH_SAMPLE_PERIOD_MS * 1000 + 100000;
+static_assert(DEPTH_STALE_AFTER_MS > DEPTH_FILTER_DELAY_MS +
+                                         2 * DEPTH_SAMPLE_PERIOD_MS,
+              "Depth freshness limit must cover filter delay and cadence slack.");
 
 // Initial model/gate and fusion settings. CNN controls the gate only; it is
 // not added numerically to the depth/PPG weighted score.
@@ -97,7 +109,16 @@ constexpr uint32_t RISK_ROUND_MAX_PPG_WINDOW_SPAN_US = 4110000;
 constexpr uint32_t RISK_ROUND_MAX_PPG_ENDPOINT_SKEW_US = 100000;
 constexpr float PPG_DUMMY_RISK_SCORE = 0.0f; // Explicit placeholder; not a sensor-derived score.
 constexpr uint32_t IMU_BUFFER_CAPACITY = IMU_WINDOW_SAMPLES * 2;
+// 32 finalized samples span 3.1 s at 10 Hz, exceeding the 1 s regression
+// history plus filter delay, endpoint tolerance, and one cadence of slack.
 constexpr uint32_t DEPTH_BUFFER_CAPACITY = 32;
+constexpr uint32_t DEPTH_BUFFER_RETENTION_MS =
+    (DEPTH_BUFFER_CAPACITY - 1) * DEPTH_SAMPLE_PERIOD_MS;
+constexpr uint32_t DEPTH_BUFFER_REQUIRED_MS =
+    DEPTH_REGRESSION_WINDOW_MS + DEPTH_FILTER_DELAY_MS +
+    RISK_ROUND_MAX_DEPTH_ENDPOINT_SKEW_US / 1000 + DEPTH_SAMPLE_PERIOD_MS;
+static_assert(DEPTH_BUFFER_RETENTION_MS >= DEPTH_BUFFER_REQUIRED_MS,
+              "Depth buffer must retain aligned regression history.");
 constexpr uint32_t PPG_BUFFER_CAPACITY = PPG_ANALYSIS_WINDOW_READINGS * 2;
 constexpr uint32_t PPG_SERVICE_PERIOD_MS = 5;
 constexpr uint32_t ACQUISITION_TASK_STACK_BYTES = 8192;
