@@ -29,11 +29,12 @@ constexpr DepthQualityFlags STOPPED = 1u << 7;
 }
 
 struct DepthSensorConfig {
-  uint32_t samplePeriodMs = 200; // PROVISIONAL/TBD; 5 Hz initial cadence.
+  uint32_t samplePeriodMs = Config::DEPTH_SAMPLE_PERIOD_MS;
   float waterDensityKgM3 = 1000.0f; // PROVISIONAL/TBD freshwater/pool density.
 
   // These filter values are implementation defaults only, not safety-calibrated.
-  uint8_t hampelWindowSamples = 5; // PROVISIONAL/TBD.
+  // The full window includes five previous, current, and two future by default.
+  uint8_t hampelWindowSamples = Config::DEPTH_HAMPEL_WINDOW_READINGS;
   float hampelDeviationThreshold = 3.0f; // PROVISIONAL/TBD MAD multiplier.
   float hampelMinimumDeviationM = 0.01f; // PROVISIONAL/TBD MAD floor.
   float emaAlpha = 0.25f; // PROVISIONAL/TBD.
@@ -97,12 +98,17 @@ class DepthSensor {
   bool diveActive() const { return diveActive_; }
   bool hasReading() const { return reading_.timestampUs != 0; }
   const DepthReading& reading() const { return reading_; }
+  // Highest time for which no older depth sample remains unfinalized.
+  uint64_t finalizedThroughUs(uint64_t nowUs) const;
   DepthReading snapshot(uint64_t nowUs) const;
   bool isStale(uint64_t nowUs) const;
   const DepthSensorConfig& config() const { return config_; }
 
  private:
   static constexpr size_t HISTORY_CAPACITY = 64;
+  static constexpr size_t PENDING_CAPACITY =
+      Config::DEPTH_HAMPEL_FUTURE_READINGS + 1;
+  static constexpr size_t PUBLISHED_CAPACITY = HISTORY_CAPACITY;
   static constexpr uint64_t CONVERSION_TIME_US = 20000;
 
   enum class ConversionState : uint8_t {
@@ -126,6 +132,10 @@ class DepthSensor {
   void invalidateReading(uint64_t timestampUs, float pressurePa,
                          float temperatureC, DepthQualityFlags flags);
   void resetDiveState();
+  void flushPendingAsUnclassifiable();
+  void queueSegmentBoundary(DepthQualityFlags flags);
+  void queuePublishedReading(const DepthReading& reading);
+  DepthServiceEvent drainPublishedOutput();
   bool sensorPresent() const;
   bool writeCommand(uint8_t command);
   bool readAdc(uint32_t& value);
@@ -137,9 +147,13 @@ class DepthSensor {
                   float& pressurePa, float& temperatureC) const;
   DepthServiceEvent failConversion(uint64_t timestampUs,
                                    DepthQualityFlags flags);
-  void processSample(uint64_t timestampUs, float pressurePa, float temperatureC);
+  bool processSample(uint64_t timestampUs, float pressurePa,
+                     float temperatureC, bool surfaceZero,
+                     bool& sampleValid);
+  bool finalizeOldestPendingSample();
+  void finalizeSample(DepthReading& sample);
   void updateDepthRate(uint64_t timestampUs);
-  bool isHampelOutlier(float depthM, bool& warming);
+  bool isHampelOutlier(const DepthReading& sample, bool& warming);
   void appendRawHistory(float depthM, uint64_t timestampUs);
   void appendFilteredHistory(float depthM, uint64_t timestampUs);
 
@@ -165,4 +179,10 @@ class DepthSensor {
   HistorySample filteredHistory_[HISTORY_CAPACITY]{};
   size_t rawHistoryCount_ = 0;
   size_t filteredHistoryCount_ = 0;
+  DepthReading pendingSamples_[PENDING_CAPACITY]{};
+  size_t pendingSampleCount_ = 0;
+  DepthReading publishedReadings_[PUBLISHED_CAPACITY]{};
+  size_t publishedReadingCount_ = 0;
+  DepthServiceEvent deferredFailureEvent_ = DepthServiceEvent::NONE;
+  DepthReading deferredFailureReading_{};
 };

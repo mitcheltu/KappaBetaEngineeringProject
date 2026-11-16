@@ -87,6 +87,8 @@ void processingTask(void*) {
   uint64_t cachedCnnStartUs = 0, cachedCnnEndUs = 0;
   uint32_t nextRoundId = 0;
   uint64_t lastRoundTargetUs = 0;
+  uint64_t pendingRoundTargetUs = 0;
+  uint64_t pendingRoundStartedUs = 0;
   uint64_t openingTargetUs = 0;
   bool openingRoundPending = false;
 
@@ -190,9 +192,20 @@ void processingTask(void*) {
   };
 
   auto runRiskRound = [&](uint64_t targetUs) -> bool {
-    if (!gate.isOpen() || targetUs == 0 || targetUs <= lastRoundTargetUs)
+    if (!gate.isOpen() || targetUs == 0)
       return false;
-    const uint64_t roundStartedUs = static_cast<uint64_t>(esp_timer_get_time());
+    if (targetUs <= lastRoundTargetUs) {
+      if (pendingRoundTargetUs <= lastRoundTargetUs) {
+        pendingRoundTargetUs = 0;
+        pendingRoundStartedUs = 0;
+      }
+      return false;
+    }
+    const uint64_t invocationStartedUs =
+        static_cast<uint64_t>(esp_timer_get_time());
+    const uint64_t roundStartedUs =
+        pendingRoundTargetUs == targetUs && pendingRoundStartedUs != 0
+            ? pendingRoundStartedUs : invocationStartedUs;
 
     const std::size_t ppgCopied = sensorBuffers.copyLatestPpg(
         targetUs, ppgSnapshot, Config::PPG_ANALYSIS_WINDOW_READINGS);
@@ -221,6 +234,19 @@ void processingTask(void*) {
     // approximately one-second cadence. Do not queue an obsolete round.
     if (!ppgWindowValid) return false;
 
+    // Depth classification needs two readings after each candidate. Keep T
+    // unchanged and retry this round when the acquisition task advances the
+    // finalized-through watermark.
+    if (!sensorBuffers.requestDepthFinalizationThrough(targetUs)) {
+      pendingRoundTargetUs = targetUs;
+      pendingRoundStartedUs = roundStartedUs;
+      return false;
+    }
+    if (pendingRoundTargetUs <= targetUs) {
+      pendingRoundTargetUs = 0;
+      pendingRoundStartedUs = 0;
+    }
+
     const CnnEvaluation cnn = evaluateCnnAt(targetUs);
     if (cnn.inferenceRan) applyGate(cnn);
 
@@ -232,7 +258,7 @@ void processingTask(void*) {
     round.ppg = ppgSensor.riskResult(targetUs, ppgStartUs, ppgEndUs, true);
 
     DepthReading depthReading{};
-    if (sensorBuffers.latestDepth(targetUs, depthReading)) {
+    if (sensorBuffers.latestValidDepth(targetUs, depthReading)) {
       round.depth = depthRiskEstimator.compare(depthReading);
       const uint64_t depthWindowEarliestUs = targetUs >
               static_cast<uint64_t>(Config::DEPTH_REGRESSION_WINDOW_MS) * 1000ULL +
@@ -273,6 +299,10 @@ void processingTask(void*) {
     }
 
     lastRoundTargetUs = targetUs;
+    if (pendingRoundTargetUs <= targetUs) {
+      pendingRoundTargetUs = 0;
+      pendingRoundStartedUs = 0;
+    }
     round.completedAtUs = static_cast<uint64_t>(esp_timer_get_time());
     round.roundDurationUs = round.completedAtUs - roundStartedUs;
     if (!riskRoundStore.publish(round))
@@ -343,6 +373,22 @@ void processingTask(void*) {
       if (openingRoundPending && openingTargetUs > roundTargetUs)
         roundTargetUs = openingTargetUs;
       if (runRiskRound(roundTargetUs)) openingRoundPending = false;
+    }
+
+    if (gate.isOpen() && pendingRoundTargetUs != 0 &&
+        !attemptedRoundThisWake &&
+        (notification & PROCESSING_NOTIFY_DEPTH_FINALIZED) != 0) {
+      const uint64_t targetUs = pendingRoundTargetUs;
+      if (sensorBuffers.requestDepthFinalizationThrough(targetUs)) {
+        if (runRiskRound(targetUs)) {
+          openingRoundPending = false;
+        } else {
+          // The depth delay has elapsed, so a failed retry means the retained
+          // PPG window is no longer eligible; wait for a newer PPG target.
+          pendingRoundTargetUs = 0;
+          pendingRoundStartedUs = 0;
+        }
+      }
     }
   }
 }

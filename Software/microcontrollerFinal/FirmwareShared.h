@@ -52,6 +52,7 @@ extern std::atomic<bool> gyroCalibrationRequested, gyroCalibrationClearRequested
 constexpr uint32_t PROCESSING_NOTIFY_IMU = 1U << 0;
 constexpr uint32_t PROCESSING_NOTIFY_PPG_UPDATED = 1U << 1;
 constexpr uint32_t PROCESSING_NOTIFY_PPG_ANALYZE = 1U << 2;
+constexpr uint32_t PROCESSING_NOTIFY_DEPTH_FINALIZED = 1U << 3;
 extern std::atomic<uint16_t> batteryMv;
 // Coherent diagnostic sample: high 16 bits = ADC mV, low 16 = battery estimate
 // before validity filtering. UINT32_MAX means no sample yet.

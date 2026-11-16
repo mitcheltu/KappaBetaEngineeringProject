@@ -3,6 +3,7 @@
 // SOS: blue LED 10s, then pump until Cancel. Serial: help, status, z,
 // calibrate gyro, clear calibration, off, sos, log debug.
 #include "FirmwareShared.h"
+#include "imuDeployCNN/imu_cnn_model_data.h"
 
 ImuSensor imu;
 ImuRisk::Evaluator imuRiskEvaluator(Config::CNN_SCORE_THRESHOLD);
@@ -65,6 +66,13 @@ void setup() {
       Config::BATTERY_ADC, Config::BATTERY_DIVIDER_RATIO, Config::BATTERY_VALID_MIN_MV,
       Config::BATTERY_VALID_MAX_MV, Config::ACTUATOR_MIN_BATTERY_MV);
   initializeHistory();
+  const bool imuModelReady = imuRiskEvaluator.begin(
+      historyMlWorkspace(0), Config::ML_WORKSPACE_BYTES);
+  logMessage(imuModelReady ? LogLevel::INFO : LogLevel::ERROR, "IMU-CNN",
+      "TFLite Micro %s; model bytes=%u arena=%lu bytes threshold=%.6f",
+      imuModelReady ? "ready" : "unavailable", g_imu_cnn_model_data_len,
+      static_cast<unsigned long>(Config::ML_WORKSPACE_BYTES),
+      Config::CNN_SCORE_THRESHOLD);
   initializeBle();
 
   if (buffersReady && riskResultsReady) {

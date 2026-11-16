@@ -1,0 +1,6 @@
+dependencies:
+  idf: "==5.5.2"
+  espressif/arduino-esp32:
+    version: "==3.3.7"
+  espressif/esp-tflite-micro:
+    version: "==1.4.1"

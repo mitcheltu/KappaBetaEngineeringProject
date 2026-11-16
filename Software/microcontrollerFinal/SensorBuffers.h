@@ -66,6 +66,25 @@ class TimestampedRing {
     return copied;
   }
 
+  template <typename Predicate, typename Barrier>
+  bool copyLatestMatchingAfterBarrier(uint64_t endUs, Reading& output,
+                                      Predicate predicate,
+                                      Barrier barrier) const {
+    bool found = false;
+    visitChronological([&](const Reading& item) {
+      if (item.timestampUs > endUs) return;
+      if (barrier(item)) {
+        found = false;
+        return;
+      }
+      if (predicate(item)) {
+        output = item;
+        found = true;
+      }
+    });
+    return found;
+  }
+
  private:
   template <typename Visitor>
   void visitChronological(Visitor visitor) const {
@@ -81,8 +100,9 @@ class TimestampedRing {
 
 } // namespace SensorBuffersDetail
 
-// Acquisition is the only writer. Readers copy under a short mutex and then
-// process their private snapshots after the mutex has been released.
+// Acquisition is the only writer to sensor rings. Readers copy under a short
+// mutex and process their snapshots after release; fusion wait metadata shares
+// that lock.
 class SensorBuffers {
  public:
   bool begin() {
@@ -101,8 +121,34 @@ class SensorBuffers {
   bool pushDepth(const DepthReading& reading) {
     if (!lock()) return false;
     depth_.push(reading);
+    advanceDepthFinalizedThroughLocked(reading.timestampUs);
     unlock();
     return true;
+  }
+
+  bool advanceDepthFinalizedThrough(uint64_t timestampUs) {
+    if (!lock()) return false;
+    advanceDepthFinalizedThroughLocked(timestampUs);
+    const bool requestReady = depthFinalizationRequestActive_ &&
+        depthFinalizedThroughUs_ >= depthFinalizationRequestUs_;
+    if (requestReady) depthFinalizationRequestActive_ = false;
+    unlock();
+    return requestReady;
+  }
+
+  // Returns true once depth has been finalized through targetUs. If it is not
+  // ready yet, acquisition will notify processing when the watermark catches up.
+  bool requestDepthFinalizationThrough(uint64_t targetUs) {
+    if (!lock()) return false;
+    const bool ready = depthFinalizedThroughUs_ >= targetUs;
+    if (ready) {
+      depthFinalizationRequestActive_ = false;
+    } else {
+      depthFinalizationRequestUs_ = targetUs;
+      depthFinalizationRequestActive_ = true;
+    }
+    unlock();
+    return ready;
   }
 
   bool pushPpg(const PpgReading& reading) {
@@ -166,6 +212,19 @@ class SensorBuffers {
     return copyLatestDepth(endUs, &output, 1) == 1;
   }
 
+  bool latestValidDepth(uint64_t endUs, DepthReading& output) const {
+    if (!lock()) return false;
+    const bool found = depth_.copyLatestMatchingAfterBarrier(
+        endUs, output, [](const DepthReading& reading) {
+          return reading.sensorValid && reading.depthValid;
+        }, [](const DepthReading& reading) {
+          return (reading.qualityFlags &
+              (DepthQuality::MISSING_BASELINE | DepthQuality::STOPPED)) != 0;
+        });
+    unlock();
+    return found;
+  }
+
   std::size_t copyPpgRange(uint64_t startUs, uint64_t endUs,
                            PpgReading* output, std::size_t capacity) const {
     if (!lock()) return 0;
@@ -196,6 +255,11 @@ class SensorBuffers {
   }
 
  private:
+  void advanceDepthFinalizedThroughLocked(uint64_t timestampUs) {
+    if (timestampUs > depthFinalizedThroughUs_)
+      depthFinalizedThroughUs_ = timestampUs;
+  }
+
   bool lock() const {
     return mutex_ && xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE;
   }
@@ -207,4 +271,7 @@ class SensorBuffers {
   SensorBuffersDetail::TimestampedRing<DepthReading, Config::DEPTH_BUFFER_CAPACITY> depth_{};
   SensorBuffersDetail::TimestampedRing<PpgReading, Config::PPG_BUFFER_CAPACITY> ppg_{};
   PpgAnalysis ppgAnalysis_{};
+  uint64_t depthFinalizedThroughUs_ = 0;
+  uint64_t depthFinalizationRequestUs_ = 0;
+  bool depthFinalizationRequestActive_ = false;
 };
