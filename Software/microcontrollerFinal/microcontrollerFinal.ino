@@ -17,9 +17,11 @@ SinkRateEstimator depthRiskEstimator(
     Config::DEPTH_WATER_DENSITY_KG_M3,
     Config::DEPTH_RISK_PROFILE_PROJECTED_AREA_M2);
 SensorBuffers sensorBuffers;
+RiskRoundStore riskRoundStore;
 NimBLEServer* bleServer = nullptr;
 NimBLECharacteristic *depthCharacteristic = nullptr, *imuCharacteristic = nullptr;
 NimBLECharacteristic *ppgCharacteristic = nullptr, *systemCharacteristic = nullptr;
+NimBLECharacteristic* riskCharacteristic = nullptr;
 std::atomic<bool> busReady{false}, imuReady{false}, ppgReady{false}, depthReady{false};
 bool imuValid = false;
 float imuAxes[6] = {};
@@ -48,10 +50,12 @@ void setup() {
   Serial.begin(115200);
   const bool loggingReady = initializeLogging();
   const bool buffersReady = sensorBuffers.begin();
+  const bool riskResultsReady = riskRoundStore.begin();
   controlReady = xTaskCreate(controlTask, "bench-test", 4096, nullptr, 3, &controlTaskHandle) == pdPASS;
   // The only direct print is a startup fallback if no writer could be created.
   if (!loggingReady) Serial.println("ERROR: diagnostic queue/task unavailable; logging disabled.");
   if (!buffersReady) logMessage(LogLevel::ERROR, "SENSORS", "Sensor buffer mutex allocation failed; acquisition tasks will not start.");
+  if (!riskResultsReady) logMessage(LogLevel::ERROR, "RISK", "Risk result mutex allocation failed; acquisition tasks will not start.");
   logMessage(LogLevel::INFO, "BOOT", "Final integration: IMU 20Hz/3s window; SOS -> blue LED 10s -> pump until Cancel/off");
   logMessage(controlReady ? LogLevel::INFO : LogLevel::ERROR, "CONTROL",
       "task=%s enabled=%d; active-low SOS=GPIO%d Cancel=GPIO%d; blue LED=GPIO%d pump=GPIO%d; vibration held off",
@@ -63,7 +67,7 @@ void setup() {
   initializeHistory();
   initializeBle();
 
-  if (buffersReady) {
+  if (buffersReady && riskResultsReady) {
     const bool processingCreated = xTaskCreatePinnedToCore(
         processingTask, "sensor-processing", Config::PROCESSING_TASK_STACK_BYTES,
         nullptr, Config::PROCESSING_TASK_PRIORITY, &processingTaskHandle,

@@ -1,0 +1,23 @@
+{
+  "purpose": "Synthetic numerical parity fixtures; no clinical/outcome labels",
+  "seed": 20261109,
+  "notebook_sha256": "58deef5e3c614dd712ab77d9b467405406145904424cf2bc4e1ca4c47fc61810",
+  "numpy": "2.2.6",
+  "scipy": "1.14.1",
+  "torch": "2.8.0+cpu",
+  "feature_absolute_tolerance": 1e-07,
+  "score_absolute_tolerance": 1e-05,
+  "unsupported_corner": "Exact equal-height conflicting peaks: NumPy argsort tie order is not portable; C++ flags ambiguity and abstains from model inference",
+  "source_sha256": {
+    "pulse_loss_cnn_1d.pt": "8ba9dc4407da3ddacfb7a409956e93820a1d2bc566f7128f853dc822837f794c",
+    "pulse_loss_configuration.json": "d090e2ccb30acde4f2c11b1997fb5765d4795b782523ef9ca0a0297b79ef295e",
+    "pulse_loss_feature_models.joblib": "12b8e4ab5b3be80569882b2835bd2e1da78b540188c494db0b721b853cdc42b6"
+  },
+  "fixture_sha256": {
+    "pulse_expected.csv": "81a9254fb50c75169063412e8e6ebf3597a54fc3175c3d074baa9164fa42d674",
+    "pulse_peaks.csv": "b186fd3ccd35c626ea147f562d8406e55addce23fd4fd4d27161354cf8f8c144",
+    "pulse_peak_cases.csv": "3b293e0ca85e28189192cc1d29f307970065f7c6a1107c1e6db5530fe0dcb176",
+    "pulse_peak_expected.csv": "5a70d9b6ddbd1bb899ddda86878e70c11750915a12ff763713dd358a43eb0945",
+    "pulse_waveforms.csv": "1300d144cd3b17f9aabcb208d69a6a3d79eb334e77fa1655c963a8c4cdd55cef"
+  }
+}

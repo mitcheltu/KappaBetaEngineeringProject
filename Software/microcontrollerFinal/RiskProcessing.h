@@ -2,6 +2,8 @@
 
 #include <cmath>
 #include <cstdint>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 #include "ImuRiskEvaluator.h"
 #include "PpgSensor.h"
@@ -50,7 +52,50 @@ class CnnRiskGate {
 struct RiskRoundResult {
   uint32_t roundId = 0;
   uint64_t targetUs = 0;
+  uint64_t completedAtUs = 0;
+  uint64_t cnnDurationUs = 0;
+  uint64_t roundDurationUs = 0;
   ImuRisk::EvaluationResult cnn{};
   SinkRateComparison depth{};
   PpgRiskResult ppg{};
+  float combinedRisk = NAN;
+  bool gateOpen = false;
+  bool fusionComplete = false;
+  bool fusionValid = false;
+};
+
+// Processing publishes whole rounds; telemetry and diagnostics take short
+// copies so neither reader can observe a partially updated result.
+class RiskRoundStore {
+ public:
+  bool begin() {
+    if (mutex_) return true;
+    mutex_ = xSemaphoreCreateMutex();
+    return mutex_ != nullptr;
+  }
+
+  bool publish(const RiskRoundResult& result) {
+    if (!lock()) return false;
+    latest_ = result;
+    available_ = true;
+    xSemaphoreGive(mutex_);
+    return true;
+  }
+
+  bool snapshot(RiskRoundResult& result) const {
+    if (!lock()) return false;
+    const bool available = available_;
+    if (available) result = latest_;
+    xSemaphoreGive(mutex_);
+    return available;
+  }
+
+ private:
+  bool lock() const {
+    return mutex_ && xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE;
+  }
+
+  mutable SemaphoreHandle_t mutex_ = nullptr;
+  RiskRoundResult latest_{};
+  bool available_ = false;
 };

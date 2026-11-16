@@ -1,0 +1,125 @@
+{
+  "deployable": false,
+  "source_configuration": {
+    "purpose": "pulse-lost / dangerous-rhythm detector from PPG",
+    "version": "v4 (2026-11-09)",
+    "deployable": false,
+    "drowning_detector": false,
+    "training_data": {
+      "dataset": "PhysioNet/CinC Challenge 2015 training set",
+      "md5": "99a51fefcd72b584a8122ebd7f78dacf",
+      "labels": "expert true/false alarm annotations (Challenge)",
+      "alarms_used": [
+        "Asystole",
+        "Bradycardia",
+        "Ventricular_Tachycardia",
+        "Ventricular_Flutter_Fib"
+      ],
+      "alarms_excluded": {
+        "Tachycardia": "HR > 140 bpm is normal while swimming"
+      },
+      "records": 514,
+      "true_events": 123
+    },
+    "false_alarm_data": {
+      "dataset": "WildPPG sternum IR PPG, healthy volunteers",
+      "participants": [
+        "an0",
+        "e61",
+        "fex",
+        "k2s",
+        "kjd",
+        "l38",
+        "n31",
+        "ngh"
+      ],
+      "hours": 1.3022222222222222
+    },
+    "input": {
+      "rate_hz": 100,
+      "window_s": 16,
+      "band_hz": [
+        0.5,
+        8.0
+      ],
+      "scaling": "5-95 percentile spread"
+    },
+    "rule_definitions": {
+      "asystole_gap_s": 4.0,
+      "brady_bpm": 40.0,
+      "brady_beats": 5
+    },
+    "operating_points": {
+      "high_sensitivity": 0.9,
+      "high_specificity": 0.9
+    },
+    "final_thresholds": {
+      "logistic": {
+        "high_sensitivity": 0.309756276253305,
+        "high_specificity": 0.6911959451179835
+      },
+      "boosted_trees": {
+        "high_sensitivity": 0.04230681639075076,
+        "high_specificity": 0.6713188749357708
+      },
+      "cnn_1d": {
+        "high_sensitivity": 0.3601987957954407,
+        "high_specificity": 0.629457175731659
+      }
+    },
+    "features": [
+      "max_gap_s",
+      "tail_gap_s",
+      "n_beats",
+      "hr_median",
+      "hr_min5",
+      "ibi_cv",
+      "amp_tail_ratio",
+      "spectral_purity",
+      "flat_fraction",
+      "kurtosis"
+    ],
+    "models": [
+      "rule_definitions",
+      "logistic",
+      "boosted_trees",
+      "cnn_1d"
+    ],
+    "seed": 20261109,
+    "limitations": [
+      "ICU finger PPG, not chest MAX30102 in water",
+      "record-level folds (no patient IDs published)",
+      "few true asystole (17) and VF (6) events with PPG",
+      "healthy-PPG test on land only"
+    ],
+    "versions": {
+      "python": "3.12.6",
+      "numpy": "2.2.6",
+      "pandas": "3.0.1",
+      "scikit_learn": "1.5.2"
+    }
+  },
+  "notebook_sha256": "58deef5e3c614dd712ab77d9b467405406145904424cf2bc4e1ca4c47fc61810",
+  "source_sha256": {
+    "pulse_loss_configuration.json": "d090e2ccb30acde4f2c11b1997fb5765d4795b782523ef9ca0a0297b79ef295e",
+    "pulse_loss_feature_models.joblib": "12b8e4ab5b3be80569882b2835bd2e1da78b540188c494db0b721b853cdc42b6",
+    "pulse_loss_cnn_1d.pt": "8ba9dc4407da3ddacfb7a409956e93820a1d2bc566f7128f853dc822837f794c"
+  },
+  "header_sha256": "76a36842f4dc70e173d657aeb4d8e470ed11a4b78c980af3a9392951f15b0c88",
+  "tree_count": 200,
+  "tree_nodes": 5800,
+  "cnn_present": true,
+  "feature_order": [
+    "max_gap_s",
+    "tail_gap_s",
+    "n_beats",
+    "hr_median",
+    "hr_min5",
+    "ibi_cv",
+    "amp_tail_ratio",
+    "spectral_purity",
+    "flat_fraction",
+    "kurtosis"
+  ],
+  "filter": "scipy.signal.butter(3,[0.5,8],fs=100,output='sos')"
+}

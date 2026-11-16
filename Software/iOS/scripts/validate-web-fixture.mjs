@@ -16,7 +16,7 @@ const historySource = compile(await readFile(new URL('src/services/historyProtoc
   .replace(/from ['"]\.\/telemetryProtocol['"]/g, `from ${JSON.stringify(telemetryURL)}`);
 const history = await import(moduleURL(historySource));
 const fixtureURL = new URL('../Tests/WearableCoreTests/Fixtures/history-protocol-fixture.json', import.meta.url);
-const canonicalURL = new URL('../../tests/history-protocol-fixture.json', import.meta.url);
+const canonicalURL = new URL('../../testsAndDemo/tests/history-protocol-fixture.json', import.meta.url);
 const fixtureText = await readFile(fixtureURL, 'utf8');
 assert.deepEqual(JSON.parse(fixtureText), JSON.parse(await readFile(canonicalURL, 'utf8')), 'Swift fixture drifted from firmware fixture');
 const fixture = JSON.parse(fixtureText), expected = fixture.expected;

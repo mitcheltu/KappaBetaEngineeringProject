@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'Software/WebApp/**'
+      - 'Software/testsAndDemo/tests/history-protocol-fixture.json'
       - '.github/workflows/webapp-pages.yml'
   workflow_dispatch:
 
@@ -38,7 +39,7 @@ jobs:
         run: npm ci
       - name: Check types
         run: npm run typecheck
-      - name: Test mock connection
+      - name: Test connection and protocol services
         run: npm test
       # Run validation even before the repository's one-time Pages setup.
       # Settings > Pages > Build and deployment > Source must be GitHub Actions.

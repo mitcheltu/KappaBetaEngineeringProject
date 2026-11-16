@@ -48,6 +48,7 @@ constexpr uint32_t LOG_STATUS_PERIOD_MS = 2000;
 // Example optical gate, not a validated wrist/contact classifier.
 constexpr uint32_t PPG_MIN_IR = 50000, PPG_MAX_ADC = 262000;
 constexpr uint32_t TELEMETRY_PERIOD_MS = 200;
+constexpr uint32_t RISK_RESULT_STALE_AFTER_MS = 2000;
 constexpr uint32_t HISTORY_BYTES = 4 * 1024 * 1024;
 constexpr uint32_t ML_WORKSPACE_BYTES = 1024 * 1024; // Two future model workspaces.
 constexpr uint32_t PSRAM_HEADROOM_BYTES = 1024 * 1024;
@@ -68,8 +69,8 @@ constexpr uint32_t DEPTH_STALE_AFTER_MS = 1000;
 constexpr uint32_t RISK_ROUND_MAX_DEPTH_ENDPOINT_SKEW_US =
     DEPTH_SAMPLE_PERIOD_MS * 1000 + 100000;
 
-// Initial model/gate and later fusion settings. CNN controls the gate only;
-// component weights are used by the following fusion integration step.
+// Initial model/gate and fusion settings. CNN controls the gate only; it is
+// not added numerically to the depth/PPG weighted score.
 constexpr float CNN_SCORE_THRESHOLD = 0.5f;
 constexpr float DEPTH_FUSION_WEIGHT = 0.5f;
 constexpr float PPG_FUSION_WEIGHT = 0.5f;
@@ -102,6 +103,7 @@ constexpr char DEPTH_UUID[] = "e81b6210-7e57-4d8e-b6f4-889c1d4e8270";
 constexpr char IMU_UUID[] = "e81b6211-7e57-4d8e-b6f4-889c1d4e8270";
 constexpr char PPG_UUID[] = "e81b6212-7e57-4d8e-b6f4-889c1d4e8270";
 constexpr char SYSTEM_UUID[] = "e81b6213-7e57-4d8e-b6f4-889c1d4e8270";
+constexpr char RISK_UUID[] = "e81b6214-7e57-4d8e-b6f4-889c1d4e8270";
 constexpr char ZERO_DEPTH_UUID[] = "e81b6220-7e57-4d8e-b6f4-889c1d4e8270";
 constexpr char HISTORY_INFO_UUID[] = "e81b6230-7e57-4d8e-b6f4-889c1d4e8270";
 constexpr char HISTORY_STATUS_UUID[] = "e81b6231-7e57-4d8e-b6f4-889c1d4e8270";
