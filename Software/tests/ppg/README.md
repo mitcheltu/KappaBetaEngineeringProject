@@ -70,6 +70,19 @@ abstention and is not counted as a parity pass. Model decisions match exactly
 for accepted fixtures; feature absolute tolerance is `1e-7`, logistic/tree
 score tolerance `1e-8`, and CNN score tolerance `1e-5`.
 
+### v5 `cnn_v5_h` ensemble
+
+```powershell
+python Software/ppgSoftware/tools/export_pulse_cnn_v5.py tmp/kaggle-qa/v6/out04_full
+```
+
+This script writes `PulseCnnV5Params.h`, `pulse_cnn_v5_manifest.json` and
+`pulse_cnn_v5_expected.csv`. The fixture runs the existing `pulse_waveforms.csv` inputs
+through the notebook's own `prepare()` and `PulseCNN5` code: it extracts them from the
+notebook source and loads the saved ensemble weights.
+`ppg_cnn_v5_test` checks all three members and the ensemble mean to `2e-5`, plus both
+alert decisions. Thresholds are read only from the exported configuration.
+
 The filtering reference is SciPy `sosfiltfilt` with default odd padding and
 initial states. Peak distance filtering precedes prominence filtering. See the
 primary [SciPy filtering documentation](https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.sosfiltfilt.html)

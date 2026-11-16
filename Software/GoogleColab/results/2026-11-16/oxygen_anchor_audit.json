@@ -1,0 +1,8 @@
+{
+  "observed_AG_minimum": 83.0,
+  "margin_pp_assumption": 3.0,
+  "start": 80.0,
+  "full": 60.0,
+  "full_anchor_basis": "inherited engineering value; not inferred from these healthy outcomes",
+  "calibration_status": "inspected dataset; no validated alarm limit or measured device error bound"
+}

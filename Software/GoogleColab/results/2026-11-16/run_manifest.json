@@ -1,0 +1,539 @@
+{
+  "pulse_configuration": {
+    "purpose": "pulse-lost / dangerous-rhythm detector from PPG",
+    "version": "v5 (2026-11-16)",
+    "deployable": false,
+    "drowning_detector": false,
+    "quick_smoke_test": false,
+    "run_plan_sha256": "cab4f769d8db4b84eb9be5849ae6d4dd1e5227c66ba3c51c7ed568dc01b46860",
+    "training_data": {
+      "dataset": "PhysioNet/CinC Challenge 2015 training set",
+      "md5": "99a51fefcd72b584a8122ebd7f78dacf",
+      "labels": "expert true/false alarm annotations (Challenge)",
+      "alarms_used": [
+        "Asystole",
+        "Bradycardia",
+        "Ventricular_Tachycardia",
+        "Ventricular_Flutter_Fib"
+      ],
+      "alarms_excluded": {
+        "Tachycardia": "HR > 140 bpm is normal while swimming"
+      },
+      "records": 514,
+      "true_events": 123,
+      "healthy_negatives": {
+        "dataset": "WildPPG sternum IR PPG",
+        "participants": [
+          "an0",
+          "e61",
+          "fex",
+          "k2s",
+          "kjd",
+          "l38",
+          "n31",
+          "ngh"
+        ],
+        "windows": 400,
+        "label": "protocol fact: healthy volunteers",
+        "selection": "automatic ECG/PPG beat-count agreement ((0.8, 1.2)), non-overlapping",
+        "used_by": [
+          "boosted_trees_h",
+          "cnn_v5_h"
+        ]
+      }
+    },
+    "false_alarm_data": {
+      "dataset": "WildPPG sternum IR PPG, healthy volunteers",
+      "participants": [
+        "p5d",
+        "p9p",
+        "qm9",
+        "ssx",
+        "trh",
+        "tz8",
+        "u7y",
+        "w4p"
+      ],
+      "hours": 108.83555555555556,
+      "note": "disjoint from current 04 training/gate fitting; all appeared in prior 02 results; p5d used in ECG debugging; model selection uses this comparison"
+    },
+    "input": {
+      "rate_hz": 100,
+      "window_s": 16,
+      "band_hz": [
+        0.5,
+        8.0
+      ],
+      "scaling": "5-95 percentile spread",
+      "ir_sign": "clinical PLETH convention (raw optical intensity negated)"
+    },
+    "rule_definitions": {
+      "asystole_gap_s": 4.0,
+      "brady_bpm": 40.0,
+      "brady_beats": 5
+    },
+    "operating_points": {
+      "high_sensitivity": 0.9,
+      "high_specificity": 0.9
+    },
+    "final_thresholds": {
+      "logistic": {
+        "high_sensitivity": 0.309756276253305,
+        "high_specificity": 0.6911959451179835
+      },
+      "boosted_trees": {
+        "high_sensitivity": 0.04230681639075076,
+        "high_specificity": 0.6713188749357708
+      },
+      "cnn_1d": {
+        "high_sensitivity": 0.3601987957954407,
+        "high_specificity": 0.629457175731659
+      },
+      "boosted_trees_h": {
+        "high_sensitivity": 0.01705519800015821,
+        "high_specificity": 0.6169547842481281
+      },
+      "cnn_v5": {
+        "high_sensitivity": 0.21377921104431152,
+        "high_specificity": 0.6526252627372743
+      },
+      "cnn_v5_h": {
+        "high_sensitivity": 0.27036693692207336,
+        "high_specificity": 0.6635308265686036
+      }
+    },
+    "features": [
+      "max_gap_s",
+      "tail_gap_s",
+      "n_beats",
+      "hr_median",
+      "hr_min5",
+      "ibi_cv",
+      "amp_tail_ratio",
+      "spectral_purity",
+      "flat_fraction",
+      "kurtosis"
+    ],
+    "models": [
+      "rule_definitions",
+      "logistic",
+      "boosted_trees",
+      "cnn_1d",
+      "boosted_trees_h",
+      "cnn_v5",
+      "cnn_v5_h"
+    ],
+    "seed": 20261109,
+    "pulse_visibility_gate": {
+      "features": [
+        "max_gap_s",
+        "tail_gap_s",
+        "n_beats",
+        "hr_median",
+        "hr_min5",
+        "ibi_cv",
+        "amp_tail_ratio",
+        "spectral_purity",
+        "flat_fraction",
+        "kurtosis",
+        "skewness",
+        "template_r"
+      ],
+      "threshold": 0.7108029757162223,
+      "threshold_rule": "lowest with leave-one-participant-out precision >= 0.9",
+      "target": "PPG beats / ECG beats within 0.8-1.2 (reference-instrument agreement)",
+      "applied_to": "the 16-s window ending where the scored window starts",
+      "performance": [
+        {
+          "split": "train participants (leave-one-out)",
+          "windows": 24281,
+          "visible_fraction": 0.36114657551171697,
+          "AUROC": 0.8786300385029993,
+          "precision": 0.9000189358076122,
+          "coverage": 0.21749516082533668
+        },
+        {
+          "split": "test participants",
+          "windows": 195904,
+          "visible_fraction": 0.34242281934008495,
+          "AUROC": 0.8991810604554267,
+          "precision": 0.8668847982675015,
+          "coverage": 0.21685111074812152
+        }
+      ]
+    },
+    "persistence": {
+      "k": 2,
+      "n": 3,
+      "role": "reported only",
+      "combined_gate": "votes on detector flags, then apply the current prior-window gate"
+    },
+    "firmware_selection": {
+      "rule": "Among rule_definitions and each learned model at its high_specificity point: keep those whose ICU outer-CV sensitivity is >= that of rule_definitions (untuned published definitions); choose the one with the fewest false alert starts per monitored hour on WILDPPG_TEST_IDS under the prior-window gate; break ties by AUROC. 2-of-3 persistence is reported, not used for selection.",
+      "rule_definitions_sensitivity": 0.2682926829268293,
+      "selected": {
+        "model": "cnn_1d",
+        "operating_point": "high_specificity"
+      },
+      "status": "provisional research ranking only; not deployment authorization",
+      "limitations": [
+        "selection uses inspected WildPPG comparison",
+        "original rule filters ungated sensitivity but ranks gated false alarms",
+        "gated sensitivity and coverage must be reviewed together; see persistence_icu.csv"
+      ],
+      "candidates": [
+        {
+          "model": "cnn_1d",
+          "operating_point": "high_specificity",
+          "AUROC": 0.6931258187262179,
+          "sensitivity": 0.4065040650406504,
+          "specificity": 0.8925831202046036,
+          "per_hour": 15.847084578988254,
+          "ci95_hi": 17.5374106862085,
+          "monitored_fraction": 0.21684600620712186,
+          "eligible": true
+        },
+        {
+          "model": "cnn_v5_h",
+          "operating_point": "high_specificity",
+          "AUROC": 0.774405838687543,
+          "sensitivity": 0.5609756097560976,
+          "specificity": 0.8516624040920716,
+          "per_hour": 20.507991808102446,
+          "ci95_hi": 22.41908820037105,
+          "monitored_fraction": 0.21684600620712186,
+          "eligible": true
+        },
+        {
+          "model": "boosted_trees_h",
+          "operating_point": "high_specificity",
+          "AUROC": 0.7615453392385587,
+          "sensitivity": 0.37398373983739835,
+          "specificity": 0.8900255754475703,
+          "per_hour": 60.80365339798969,
+          "ci95_hi": 64.03300962768799,
+          "monitored_fraction": 0.21684600620712186,
+          "eligible": true
+        },
+        {
+          "model": "rule_definitions",
+          "operating_point": "definition",
+          "AUROC": null,
+          "sensitivity": 0.2682926829268293,
+          "specificity": 0.8925831202046036,
+          "per_hour": 99.0654645606271,
+          "ci95_hi": 103.1642543704362,
+          "monitored_fraction": 0.21684600620712186,
+          "eligible": true
+        },
+        {
+          "model": "cnn_v5",
+          "operating_point": "high_specificity",
+          "AUROC": 0.7828894017840435,
+          "sensitivity": 0.4634146341463415,
+          "specificity": 0.8925831202046036,
+          "per_hour": 105.67547844918906,
+          "ci95_hi": 109.90604984320981,
+          "monitored_fraction": 0.21684600620712186,
+          "eligible": true
+        },
+        {
+          "model": "boosted_trees",
+          "operating_point": "high_specificity",
+          "AUROC": 0.7863306510302954,
+          "sensitivity": 0.3821138211382114,
+          "specificity": 0.907928388746803,
+          "per_hour": 234.4860055083449,
+          "ci95_hi": 240.7469347269667,
+          "monitored_fraction": 0.21684600620712186,
+          "eligible": true
+        },
+        {
+          "model": "logistic",
+          "operating_point": "high_specificity",
+          "AUROC": 0.6944357806749423,
+          "sensitivity": 0.25203252032520324,
+          "specificity": 0.8951406649616368,
+          "per_hour": 94.53167298321603,
+          "ci95_hi": 98.53751571637565,
+          "monitored_fraction": 0.21684600620712186,
+          "eligible": false
+        }
+      ]
+    },
+    "training": {
+      "loss": "class-weighted binary cross-entropy (balanced classes)",
+      "cnn_1d": {
+        "epochs": 40,
+        "batch": 32,
+        "optimizer": "Adam lr 1e-3, weight decay 1e-3"
+      },
+      "cnn_v5": {
+        "seeds": 3,
+        "max_epochs": 80,
+        "patience": 10,
+        "early_stop_fraction": 0.15,
+        "optimizer": "AdamW lr 2e-3 wd 1e-3",
+        "batch": 32
+      },
+      "augmentation": {
+        "copies": 4,
+        "swap_probability": 0.5,
+        "kinds": [
+          "respiratory amplitude modulation <= 30%",
+          "healthy-chest motion artefact burst 2-6 s",
+          "band-limited sensor noise"
+        ],
+        "excluded": "time stretching (changes heart rate)"
+      },
+      "boosted_trees": {
+        "rounds": 200,
+        "learning_rate": 0.05
+      }
+    },
+    "limitations": [
+      "ICU finger PPG, not chest MAX30102 in water",
+      "record-level folds (no patient IDs published)",
+      "few true asystole (17) and VF (6) events with PPG",
+      "Poisson rate intervals assume independent starts; participant clustering can widen uncertainty",
+      "all WildPPG participants inspected previously; selection comparison is not independent validation",
+      "healthy-PPG test on land only",
+      "gate target uses an automatic ECG beat count (reference instrument), not annotated beats",
+      "gate transfer to ICU finger PPG is indicative only"
+    ],
+    "versions": {
+      "python": "3.12.6",
+      "numpy": "2.2.6",
+      "pandas": "3.0.1",
+      "scikit_learn": "1.5.2",
+      "torch": "2.8.0+cpu"
+    }
+  },
+  "oxygen_configuration": {
+    "purpose": "oxygen concern rule; breath-hold evaluation of alert burden and behaviour",
+    "deployable": false,
+    "trained_on_outcomes": false,
+    "blackout_probability": false,
+    "anchor_sets": {
+      "clinical_hypoxemia": {
+        "start": 95.0,
+        "full": 85.0
+      },
+      "moderate": {
+        "start": 90.0,
+        "full": 75.0
+      },
+      "deep_breath_hold": {
+        "start": 80.0,
+        "full": 60.0
+      }
+    },
+    "primary_anchors": "deep_breath_hold",
+    "enter_score": 0.5,
+    "exit_score": 0.25,
+    "smooth_s": 3,
+    "tau_s": 3.0,
+    "confirm_s": 3,
+    "recover_s": 5,
+    "reference_resting_spo2": 97.0,
+    "person_relative_branch": "anchor set shifted by (resting SpO2 - reference); max with absolute map",
+    "alert_clearing": "device: latched until acknowledged (auto_clear=False); evaluations: auto_clear=True",
+    "synthetic_sensor_model": {
+      "delay_s": [
+        0,
+        10,
+        20,
+        40
+      ],
+      "device_window_s": 4
+    },
+    "burst_artefact": {
+      "spo2": 80.1,
+      "sd": 2.0,
+      "fraction": 0.05,
+      "mean_burst_s": 8.0
+    },
+    "trend_horizon_s": 15.0,
+    "alpha_beta": [
+      0.5,
+      0.1
+    ],
+    "dose_seconds": 10.0,
+    "variants": {
+      "threshold": {
+        "family": "threshold",
+        "confirm": 0,
+        "recover": 0
+      },
+      "threshold_persist": {
+        "family": "threshold",
+        "confirm": 3,
+        "recover": 5
+      },
+      "concern_level": {
+        "family": "concern",
+        "baseline": false,
+        "trend": false
+      },
+      "concern_baseline": {
+        "family": "concern",
+        "baseline": true,
+        "trend": false
+      },
+      "concern_trend": {
+        "family": "concern",
+        "baseline": true,
+        "trend": true
+      },
+      "deficit_dose": {
+        "family": "dose"
+      },
+      "kalman_level": {
+        "family": "kalman"
+      },
+      "kalman_delay": {
+        "family": "kalman"
+      }
+    },
+    "input_rate_hz": 1,
+    "baseline_source": "Resting_SpO2 recorded by the study before each session (STA_BVP sheet)",
+    "limitations": [
+      "dry supine breath-holds, not immersion",
+      "finger Nonin oximeter, not chest MAX30102",
+      "lowest observed SpO2 about 83%: real deep data are clinical oximeters without arterial reference",
+      "no blackout outcomes; anchors are unvalidated",
+      "sensor delay of the chest MAX30102 unmeasured: synthetic timing is a sweep",
+      "Maxim calibration curve is generic, not calibrated for this sensor/site below ~90%"
+    ],
+    "version": "v5 (2026-11-16)",
+    "kalman_fit": {
+      "q": 0.0017096282476854246,
+      "r": 0.08333333333333333,
+      "fit_subjects": [
+        "dry_apnea/3",
+        "dry_apnea/7",
+        "dry_apnea/9",
+        "dry_apnea/13",
+        "dry_apnea/16",
+        "dry_apnea/19",
+        "dry_apnea/23",
+        "dry_apnea/25",
+        "dry_apnea/32",
+        "dry_apnea/36",
+        "dry_apnea/41",
+        "dry_apnea/45",
+        "dry_apnea/51",
+        "dry_apnea/54",
+        "dry_apnea/57",
+        "dry_apnea/62",
+        "dry_apnea/66",
+        "dry_apnea/70",
+        "dry_apnea/73",
+        "dry_apnea/78"
+      ],
+      "check_subjects": [
+        "dry_apnea/4",
+        "dry_apnea/8",
+        "dry_apnea/10",
+        "dry_apnea/14",
+        "dry_apnea/17",
+        "dry_apnea/21",
+        "dry_apnea/24",
+        "dry_apnea/30",
+        "dry_apnea/35",
+        "dry_apnea/38",
+        "dry_apnea/43",
+        "dry_apnea/46",
+        "dry_apnea/52",
+        "dry_apnea/55",
+        "dry_apnea/60",
+        "dry_apnea/63",
+        "dry_apnea/67",
+        "dry_apnea/72",
+        "dry_apnea/75",
+        "dry_apnea/80"
+      ],
+      "objective": "Gaussian one-step innovation negative log likelihood, no clinical outcomes",
+      "train_nll": 0.21950529172979397,
+      "check_nll": 0.17821006423193422,
+      "bounds_q": [
+        1e-06,
+        10.0
+      ],
+      "bounds_r": [
+        0.08333333333333333,
+        25.0
+      ],
+      "r_at_lower_bound": true,
+      "inspected_split": true,
+      "note": "Q/R separation relies on this state-space model, not a measured true SpO2 reference"
+    },
+    "anchor_derivation": {
+      "observed_AG_minimum": 83.0,
+      "margin_pp_assumption": 3.0,
+      "start": 80.0,
+      "full": 60.0,
+      "full_anchor_basis": "inherited engineering value; not inferred from these healthy outcomes",
+      "calibration_status": "inspected dataset; no validated alarm limit or measured device error bound"
+    },
+    "kalman_projection": {
+      "device_nominal_centre_age_s": 1.995,
+      "clinical_streams_s": 0,
+      "synthetic_four_point_mean_s": 1.5,
+      "unknown_tissue_delay_compensated": false
+    },
+    "real_desaturation_reference": {
+      "dataset": "UW/UCSD controlled hypoxemia",
+      "commit": "c483ae8fe4cd32b0b9ce412d07299b05279fc58f",
+      "reference": "median of the other three oximeters (not arterial)"
+    },
+    "versions": {
+      "python": "3.12.6",
+      "numpy": "2.2.6",
+      "pandas": "3.0.1"
+    }
+  },
+  "source_artifact_sha256": {
+    "pulse/cv_per_alarm_type.csv": "c806cba35bbf602906fc201e0a1f4063efc6300cb221bc259b09243af5609291",
+    "pulse/cv_results.csv": "c6e5571f11a58cfb85fac37942a077eeab11c4b99d959544ba07efb3beb0d2c9",
+    "pulse/firmware_selection.json": "edec8e3b6b5abb7d3dc2f4f16d6041ccf3e2c8d27b322dfe6df635abee506ef8",
+    "pulse/fold_thresholds.csv": "067d27ca5d7eb06f316878c084aff30152ac4cd6a43030269b87ef97088f270d",
+    "pulse/gate_performance.csv": "77a73842774f8059a90d3c298baecc236c9433e16cc7cded424ea956b9283898",
+    "pulse/healthy_false_alarms.csv": "826aedee24534adeb97489dd2f5fb20240c1bd00c60c3d80d66e1d7e63ebab64",
+    "pulse/healthy_test_windows.csv.gz": "6c5e5ba2555f003a7933d99a187799f20567c267b0896ffc615db58e6f5471ea",
+    "pulse/icu_gate_pass.csv": "11308e4a3de272439dd3aead999fdd591d1c9f746f585e497d1721c8687de431",
+    "pulse/oof_predictions.csv": "8db2d0889d66d275c8e19f6d1f477c51e54180b94472d700cda64f465179839f",
+    "pulse/persistence_icu.csv": "080d69afa63db895533d0565da7f66bf891e7284c18b9c03f014a2219a0e81c8",
+    "pulse/polarity_check.csv": "5c20338fa520a4929762294e524092c1c7c5be359ee7c92ed1489d623fecc2b0",
+    "pulse/pulse_loss_cnn_1d.pt": "8ba9dc4407da3ddacfb7a409956e93820a1d2bc566f7128f853dc822837f794c",
+    "pulse/pulse_loss_cnn_v5.pt": "9fa1dd786e7d8878785e6ff1ce4eb95cd1285039aa0eebe3021a3334e2b3a57a",
+    "pulse/pulse_loss_cnn_v5_h.pt": "0f5747744bf0433b5e5c9d98edb175ddf1b3b3ef72fd6d5f093550fc2749feb6",
+    "pulse/pulse_loss_configuration.json": "4365844e805ea628bac01a68b119e72bbd6f3e66bdb95250f87b769d8e555885",
+    "pulse/pulse_loss_feature_models.joblib": "c2c6abf39fb32206d222463ed5606842bc57471c0ba5db6d8d6fc3522f182193",
+    "pulse/pulse_visibility_gate.joblib": "f7c6642409449f0dd1db65cc944c9e9750517331583ffd303fef59e9e1d44a15",
+    "pulse/split_metrics.csv": "109da860eb68caa6c698bd990f35d34e197e177be7521f4a5df78287bc8e1967",
+    "pulse/training_curves.csv": "be431bcc2a3e6dfae15091b60ed61eb04ee48fab4fdc76a3dc615c51d2a7658e",
+    "pulse/v5_run_plan.json": "4712a30a1d657711bb910ae77707b46492bc669df703d9af2314e1266b1ed5bf",
+    "pulse/wildppg_source_manifest.json": "9fdcef29064810bcbe4b779ba366668944370db41b6b13859f728bf5681346e4",
+    "oxygen/alert_burden.csv": "9b5dcad40604e787ff1e2e78cd3a25cf2c87bd8c4b2cf99e80ba93064d82c02b",
+    "oxygen/anchor_audit.json": "7ca5f765ff13497997d0f6e5b80adc498f249a78065c8f6eb0c318a3db2e0793",
+    "oxygen/concern_configuration.json": "1ee24f71bf756b7bdf8aa5f3498cf8270856e370e198a3329c3cfdaf210d9f24",
+    "oxygen/engineering_latency.csv": "2b18312731f955b607b571345c9482a64f7edd69f2b13a17efcb2b7f60d21297",
+    "oxygen/heldout_control_burden.csv": "9e5fd0f32bed67c9ac80f32e46cc8290803927107f6147f452f9612f71ec2d3e",
+    "oxygen/kalman_fit.json": "f7c956683e9600898e81a114fa809ffd7c4c96b0cee6d6576840fcc52962a812",
+    "oxygen/noise_robustness.csv": "909d3ed7f77556f60264864593cbe730d07b8afb518ffd51bc5ebfa42baaeb6f",
+    "oxygen/participant_audit.csv": "5df08d3305c7d6814dcc1e077ca3fc0339120ebd85ed27501304e4858abc9968",
+    "oxygen/replay_reference.py": "711e24af575aab4e1f1132328cc0ffe9387aab92cd86cd478d09e4560469c68f",
+    "oxygen/session_results.csv": "d553cde628cd20db8b3e2bae120ce6402e23008a6f95e675d548597ef3d846bf",
+    "oxygen/session_results_with_fit_split.csv": "381bd93379e2a3cfffcdc61bbce9e342e16e120a05de7704c25804d0d90bce7a",
+    "oxygen/synthetic_behaviour.csv": "20a058f42ac9b1cef4850eaf4bad8851b2b364c975c83374b5f7fd25db99bf57",
+    "oxygen/uw_device_agreement.csv": "ef7115461ad9e9f2e3777a6d9b9443089cf7f7e3ca320f54f22f05ba1c17d116",
+    "oxygen/uw_pulse_by_spo2.csv": "544267b8fc9988ec44ce83887a37d338c422006dd7983d6732cfcba2a2a955bf",
+    "oxygen/uw_real_desaturation_timing.csv": "7efa01eb0799bd434d05825888c14b30d6c28b036cc5603a1f9fbdc77ec96e63"
+  },
+  "executed_script_sha256": {
+    "run04_v5.py": "211b815042519d69dd4d19aff7adaa16193f8ac3565d0dbdccb918dbb472242e",
+    "run03_v5_final.py": "8e19889453f18ba8593ef79a72c81380066b122af61415504c6522a47fb417e0"
+  },
+  "report_note": "Aggregates only; full local outputs retain models, waveforms provenance and per-window diagnostics."
+}

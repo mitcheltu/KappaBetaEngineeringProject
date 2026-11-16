@@ -5,11 +5,15 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include "PulseCnnV5.h"
 #include "PulseLossParams.h"
 
 namespace Ppg {
 
-enum class PulseModel : uint8_t { Rule, Logistic, BoostedTrees, Cnn };
+// Rule/Logistic/BoostedTrees/Cnn are the notebook 04 v4 exports (PulseLossParams.h).
+// CnnV5H is the v5 `cnn_v5_h` ensemble (PulseCnnV5Params.h): it scores the prepared
+// waveform directly, so peaks/features are not computed and ties cannot abstain.
+enum class PulseModel : uint8_t { Rule, Logistic, BoostedTrees, Cnn, CnnV5H };
 enum class PulseOperatingPoint : uint8_t { HighSensitivity, HighSpecificity };
 
 struct PulseResult {
@@ -23,7 +27,8 @@ struct PulseResult {
 };
 
 // Single-owner, fixed-size workspace. Put this object in static storage, never
-// on the ESP32 task stack. Input is a coherent, chronological 16 s / 100 Hz copy.
+// on the ESP32 task stack. Input is a coherent, chronological 16 s / 100 Hz copy
+// in the training sign convention (clinical PLETH: rises with blood volume).
 // This computes research scores only: the caller owns quality gating and alerts.
 class PulseLoss {
  public:
@@ -65,6 +70,14 @@ class PulseLoss {
       if (!std::isfinite(z[i])) return result;
       nonzero = nonzero || z[i] != 0;
     }
+    if (model == PulseModel::CnnV5H) {
+      // A flat window stays all-zero, exactly as notebook prepare() returns it.
+      result.score = cnnV5_.probability(z);
+      result.threshold = PulseCnnV5Params::Thresholds[static_cast<unsigned>(point)];
+      result.valid = std::isfinite(result.score);
+      result.alert = result.valid && result.score >= result.threshold;
+      return result;
+    }
     if (nonzero) {
       result.peakCount = detectPeaks(z, SampleCount);
       // NumPy's unstable argsort does not specify which equal-height peak wins
@@ -92,6 +105,7 @@ class PulseLoss {
       case PulseModel::Logistic: return PulseParams::HasLogistic;
       case PulseModel::BoostedTrees: return PulseParams::HasBoostedTrees;
       case PulseModel::Cnn: return PulseParams::HasCnn;
+      case PulseModel::CnnV5H: return PulseCnnV5::available();
     }
     return false;
   }
@@ -162,6 +176,7 @@ class PulseLoss {
     return index < peakCount_ ? prominences_[index] : std::numeric_limits<double>::quiet_NaN();
   }
   const double* prepared() const { return filtered_ + Pad; }
+  double cnnV5Member(std::size_t member) const { return cnnV5_.lastMember(member); }
   bool ambiguousPeakTies() const { return ambiguousPeakTies_; }
 
  private:
@@ -181,6 +196,7 @@ class PulseLoss {
     struct Spectral { double real[FftSize], imag[FftSize], power[FftSize / 2 + 1]; } spectral{};
     struct Cnn { float first[8 * 400], second[16 * 100]; } cnn{};
   } work_;
+  PulseCnnV5 cnnV5_;
 
   static double percentile(double* values, std::size_t n, double quantile) {
     if (n == 0) return 0;

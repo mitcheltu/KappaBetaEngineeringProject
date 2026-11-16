@@ -12,7 +12,7 @@ try {
   if (-not $compilerCommand) { throw 'C++ compiler unavailable; pass -Compiler with g++.exe.' }
   # MSYS2 executables need their runtime DLL directory when tests execute.
   $env:PATH = (Split-Path -Parent $compilerCommand.Source) + ';' + $env:PATH
-  $tests = @('oxygen_concern_test', 'ppg_window_quality_test', 'ppg_pulse_test', 'ppg_hardware_test', 'ppg_analysis_test')
+  $tests = @('oxygen_concern_test', 'ppg_window_quality_test', 'ppg_pulse_test', 'ppg_cnn_v5_test', 'ppg_hardware_test', 'ppg_analysis_test')
   foreach ($test in $tests) {
     $arguments = @('-std=c++17', '-O2', '-Wall', '-Wextra', '-Werror', '-pedantic',
       '-I', 'Software/ppgSoftware')

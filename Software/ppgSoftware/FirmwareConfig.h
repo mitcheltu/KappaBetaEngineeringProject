@@ -16,7 +16,11 @@ constexpr uint32_t NO_SAMPLE_MS = 200, RETRY_MS = 5000;
 constexpr uint32_t ESTIMATE_STALE_US = 1500000, PULSE_STALE_US = 500000;
 constexpr size_t RAW_QUEUE_SAMPLES = 512, MAXIM_SAMPLES = 100;
 constexpr size_t PULSE_STEP_SAMPLES = 200;
-constexpr bool PULSE_INVERT_IR = false; // Verify signal polarity against the training waveform.
+// Every notebook 04 model was trained on the clinical PLETH convention: raw optical
+// intensity negated (rises with blood volume). MAX30102 IR counts are raw reflected
+// intensity, so they are negated before pulse analysis. Bench-check once: the
+// negated trace must show a fast systolic upstroke, then a slower decline.
+constexpr bool PULSE_INVERT_IR = true;
 constexpr uint32_t ANALYSIS_BUDGET_US = 2000000;
 constexpr uint32_t QUALIFICATION_MAX_SECONDS = 3600;
 constexpr int SENSOR_CORE = 1, ANALYSIS_CORE = 1;
@@ -25,7 +29,9 @@ constexpr unsigned SENSOR_PRIORITY = 4, ANALYSIS_PRIORITY = 2;
 constexpr int ALARM_LED_PIN = 48; // DevKitC-1 v1.0; v1.1 uses 38.
 constexpr int ACK_BUTTON = 5;     // Normally open button to GND, INPUT_PULLUP.
 constexpr int PUMP_GATE = 16, VIBRATION_GATE = 7; // Always held LOW here.
-constexpr Ppg::PulseModel PULSE_MODEL = Ppg::PulseModel::Logistic;
+// cnn_v5_h (notebook 04 v5) drives only the local research LED; the pump stays LOW.
+// Post-hoc choice: the predeclared v5 rule picked cnn_1d (PulseModel::Cnn).
+constexpr Ppg::PulseModel PULSE_MODEL = Ppg::PulseModel::CnnV5H;
 constexpr Ppg::PulseOperatingPoint OPERATING_POINT = Ppg::PulseOperatingPoint::HighSpecificity;
 constexpr float OXYGEN_START = 80.0f, OXYGEN_FULL = 60.0f;
 constexpr float OXYGEN_TAU_SECONDS = 3.0f, OXYGEN_ENTER = 0.5f, OXYGEN_EXIT = 0.25f;

@@ -1,0 +1,160 @@
+{
+  "reference": "Software\\ppgSoftware\\references\\oxygen_reference.py",
+  "anchors": {
+    "start": 80.0,
+    "full": 60.0
+  },
+  "alert_level_pct": 70.0,
+  "enter_score": 0.5,
+  "median_window_s": 3,
+  "tau_s": 3.0,
+  "confirm_s": 3,
+  "breath_hold_minimum_pct": 83.0,
+  "moderate_rule_alert_level_pct": 82.5,
+  "normal_breathing_minimum_pct": 92.0,
+  "uw_trace_minimum_range_pct": [
+    61.0,
+    78.0
+  ],
+  "highest_reading_that_alerts_pct": 69,
+  "seconds_to_alert": {
+    "50": 6,
+    "60": 6,
+    "65": 7,
+    "69": 11
+  },
+  "shortest_alerting_dip_s": 5,
+  "uw": {
+    "crossing_traces": 16,
+    "crossing_adults": 4,
+    "warned": 14,
+    "non_crossing_traces": 8,
+    "non_crossing_warned": 0,
+    "rule_latency_after_device_crossing_s": {
+      "median": 12.0,
+      "min": 6.0,
+      "max": 24.0,
+      "n": 14
+    },
+    "device_minus_reference_crossing_s": {
+      "min": -69.0,
+      "max": 61.0
+    },
+    "missed": [
+      {
+        "subject": "100001",
+        "device": "Nellcor N-600X (a)",
+        "device_minimum": 70.0,
+        "device_seconds_at_or_below_70": 42
+      },
+      {
+        "subject": "100003",
+        "device": "Masimo Radical-7",
+        "device_minimum": 70.0,
+        "device_seconds_at_or_below_70": 5
+      }
+    ]
+  },
+  "burden": {
+    "clinical_hypoxemia": {
+      "AG": {
+        "alert_starts": 8,
+        "per_hour": 2.010611561016476,
+        "ci95_hi": 3.9617063105763695,
+        "sessions_with_alert": 0.05
+      },
+      "CG": {
+        "alert_starts": 0,
+        "per_hour": 0.0,
+        "ci95_hi": 0.9222198635284838,
+        "sessions_with_alert": 0.0
+      }
+    },
+    "moderate": {
+      "AG": {
+        "alert_starts": 0,
+        "per_hour": 0.0,
+        "ci95_hi": 0.9271129597047032,
+        "sessions_with_alert": 0.0
+      },
+      "CG": {
+        "alert_starts": 0,
+        "per_hour": 0.0,
+        "ci95_hi": 0.9222198635284838,
+        "sessions_with_alert": 0.0
+      }
+    },
+    "deep_breath_hold": {
+      "AG": {
+        "alert_starts": 0,
+        "per_hour": 0.0,
+        "ci95_hi": 0.9271129597047032,
+        "sessions_with_alert": 0.0
+      },
+      "CG": {
+        "alert_starts": 0,
+        "per_hour": 0.0,
+        "ci95_hi": 0.9222198635284838,
+        "sessions_with_alert": 0.0
+      }
+    }
+  },
+  "variants": [
+    {
+      "variant": "concern_level",
+      "crossing_warned_of_16": 14,
+      "noncrossing_warned_of_8": 0,
+      "median_warning_minus_reference_s": -3.5,
+      "breath_hold_alert_starts": 0,
+      "control_alert_starts": 0
+    },
+    {
+      "variant": "threshold",
+      "crossing_warned_of_16": 16,
+      "noncrossing_warned_of_8": 0,
+      "median_warning_minus_reference_s": -7.0,
+      "breath_hold_alert_starts": 0,
+      "control_alert_starts": 0
+    },
+    {
+      "variant": "threshold_persist",
+      "crossing_warned_of_16": 16,
+      "noncrossing_warned_of_8": 0,
+      "median_warning_minus_reference_s": 4.0,
+      "breath_hold_alert_starts": 0,
+      "control_alert_starts": 0
+    },
+    {
+      "variant": "concern_baseline",
+      "crossing_warned_of_16": 15,
+      "noncrossing_warned_of_8": 1,
+      "median_warning_minus_reference_s": -11.0,
+      "breath_hold_alert_starts": 0,
+      "control_alert_starts": 0
+    },
+    {
+      "variant": "concern_trend",
+      "crossing_warned_of_16": 16,
+      "noncrossing_warned_of_8": 2,
+      "median_warning_minus_reference_s": -30.5,
+      "breath_hold_alert_starts": 0,
+      "control_alert_starts": 0
+    },
+    {
+      "variant": "deficit_dose",
+      "crossing_warned_of_16": 16,
+      "noncrossing_warned_of_8": 4,
+      "median_warning_minus_reference_s": -119.0,
+      "breath_hold_alert_starts": 0,
+      "control_alert_starts": 0
+    },
+    {
+      "variant": "kalman_level",
+      "crossing_warned_of_16": 15,
+      "noncrossing_warned_of_8": 0,
+      "median_warning_minus_reference_s": -9.0,
+      "breath_hold_alert_starts": 0,
+      "control_alert_starts": 0
+    }
+  ]
+}

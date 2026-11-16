@@ -1,0 +1,52 @@
+{
+  "model": "cnn_v5_h",
+  "deployable": false,
+  "drowning_detector": false,
+  "status": "post-hoc research choice for on-device display: notebook 04 v5's predeclared rule selected cnn_1d; cnn_v5_h had higher ICU sensitivity at a higher healthy false-alert rate",
+  "architecture": "PulseCNN5: Conv(1>8,k9,s2)+pool2, Conv(8>16,k7)+pool2, Conv(16>16,k7)+pool2, Conv(16>24,k5,d2)+pool2, Conv(24>24,k5,d2)+adaptive-max(8), Linear(192>1); ReLU; mean of 3 member sigmoids",
+  "training": "PhysioNet/CinC 2015 ICU alarms (514 records, 123 true) plus 50 pulse-visible healthy WildPPG sternum windows from each of an0, e61, fex, k2s, kjd, l38, n31, ngh",
+  "best_epochs": [
+    9,
+    19,
+    14
+  ],
+  "input": {
+    "rate_hz": 100,
+    "window_s": 16,
+    "band_hz": [
+      0.5,
+      8.0
+    ],
+    "scaling": "5-95 percentile spread",
+    "ir_sign": "clinical PLETH convention (raw optical intensity negated)"
+  },
+  "thresholds": {
+    "high_sensitivity": 0.27036693692207336,
+    "high_specificity": 0.6635308265686036
+  },
+  "outer_cv_high_specificity": {
+    "AUROC": 0.774405838687543,
+    "sensitivity": 0.5609756097560976,
+    "specificity": 0.8516624040920716,
+    "TP": 69.0,
+    "FN": 54.0,
+    "TN": 333.0,
+    "FP": 58.0
+  },
+  "healthy_gated_false_alert_starts_per_monitored_hour": 20.507991808102446,
+  "evidence_files": [
+    "cv_results.csv",
+    "firmware_selection.json"
+  ],
+  "parameters_per_member": 7841,
+  "notebook_sha256": "dcc55d4db4a4dc3be9fbfdd67ff2350ebcc91f58e25475f35ce487db5aefce98",
+  "source_sha256": {
+    "pulse_loss_configuration.json": "4365844e805ea628bac01a68b119e72bbd6f3e66bdb95250f87b769d8e555885",
+    "pulse_loss_cnn_v5_h.pt": "0f5747744bf0433b5e5c9d98edb175ddf1b3b3ef72fd6d5f093550fc2749feb6"
+  },
+  "header_sha256": "e3058e7a4bc2ff80f926310c79fbdf34b53493f2d83ea89130a5c3f2b6db7768",
+  "fixture_sha256": {
+    "pulse_cnn_v5_expected.csv": "c9e3d6e7d1efbaa30211143c4553f901185eee9d9b28956d7dc6d465ea7dce58"
+  },
+  "parity_tolerance": "absolute 2e-5 on probabilities (float32 accumulation order differs)"
+}

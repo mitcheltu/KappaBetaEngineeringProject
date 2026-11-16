@@ -1,0 +1,62 @@
+{
+  "q": 0.0017096282476854246,
+  "r": 0.08333333333333333,
+  "fit_subjects": [
+    "dry_apnea/3",
+    "dry_apnea/7",
+    "dry_apnea/9",
+    "dry_apnea/13",
+    "dry_apnea/16",
+    "dry_apnea/19",
+    "dry_apnea/23",
+    "dry_apnea/25",
+    "dry_apnea/32",
+    "dry_apnea/36",
+    "dry_apnea/41",
+    "dry_apnea/45",
+    "dry_apnea/51",
+    "dry_apnea/54",
+    "dry_apnea/57",
+    "dry_apnea/62",
+    "dry_apnea/66",
+    "dry_apnea/70",
+    "dry_apnea/73",
+    "dry_apnea/78"
+  ],
+  "check_subjects": [
+    "dry_apnea/4",
+    "dry_apnea/8",
+    "dry_apnea/10",
+    "dry_apnea/14",
+    "dry_apnea/17",
+    "dry_apnea/21",
+    "dry_apnea/24",
+    "dry_apnea/30",
+    "dry_apnea/35",
+    "dry_apnea/38",
+    "dry_apnea/43",
+    "dry_apnea/46",
+    "dry_apnea/52",
+    "dry_apnea/55",
+    "dry_apnea/60",
+    "dry_apnea/63",
+    "dry_apnea/67",
+    "dry_apnea/72",
+    "dry_apnea/75",
+    "dry_apnea/80"
+  ],
+  "objective": "Gaussian one-step innovation negative log likelihood, no clinical outcomes",
+  "train_nll": 0.21950529172979397,
+  "check_nll": 0.17821006423193422,
+  "bounds_q": [
+    1e-06,
+    10.0
+  ],
+  "bounds_r": [
+    0.08333333333333333,
+    25.0
+  ],
+  "r_at_lower_bound": true,
+  "inspected_split": true,
+  "note": "Q/R separation relies on this state-space model, not a measured true SpO2 reference"
+}

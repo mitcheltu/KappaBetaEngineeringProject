@@ -1,0 +1,25 @@
+subject,device,reference_crossing,device_crossing_minus_reference_s,warning_minus_reference_s,warning_minus_device_crossing_s,warned,device_minimum,device_seconds_at_or_below_70
+100001,3900P,True,15.0,21.0,6.0,True,65.0,117
+100001,Nellcor N-600X (a),True,45.0,,,False,70.0,42
+100001,Nellcor N-600X (b),True,-19.0,-7.0,12.0,True,65.0,128
+100001,Masimo Radical-7,True,-15.0,-1.0,14.0,True,67.0,129
+100002,3900P,False,,,,False,70.1,0
+100002,Nellcor N-600X (a),False,,,,False,72.0,0
+100002,Nellcor N-600X (b),False,,,,False,73.0,0
+100002,Masimo Radical-7,False,,,,False,73.0,0
+100003,3900P,True,28.0,34.0,6.0,True,67.4,35
+100003,Nellcor N-600X (a),True,-28.0,-6.0,22.0,True,67.0,46
+100003,Nellcor N-600X (b),True,-28.0,-16.0,12.0,True,66.0,58
+100003,Masimo Radical-7,True,,,,False,70.0,5
+100004,3900P,False,,,,False,76.8,0
+100004,Nellcor N-600X (a),False,,,,False,77.0,0
+100004,Nellcor N-600X (b),False,,,,False,78.0,0
+100004,Masimo Radical-7,False,,,,False,77.0,0
+100005,3900P,True,39.0,47.0,8.0,True,65.6,34
+100005,Nellcor N-600X (a),True,25.0,37.0,12.0,True,68.0,38
+100005,Nellcor N-600X (b),True,-37.0,-21.0,16.0,True,66.0,84
+100005,Masimo Radical-7,True,-25.0,-15.0,10.0,True,68.0,75
+100006,3900P,True,61.0,67.0,6.0,True,66.8,40
+100006,Nellcor N-600X (a),True,45.0,52.0,7.0,True,66.0,50
+100006,Nellcor N-600X (b),True,-69.0,-51.0,18.0,True,61.0,126
+100006,Masimo Radical-7,True,-45.0,-21.0,24.0,True,63.0,101

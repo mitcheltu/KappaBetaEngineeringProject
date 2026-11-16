@@ -1,0 +1,5 @@
+alarm,true_events,gate_open,fraction
+Asystole,17,3,0.17647058823529413
+Bradycardia,39,27,0.6923076923076923
+Ventricular_Flutter_Fib,6,1,0.16666666666666666
+Ventricular_Tachycardia,61,42,0.6885245901639344

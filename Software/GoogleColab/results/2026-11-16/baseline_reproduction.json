@@ -1,0 +1,11 @@
+{
+  "all_baseline_metrics_match": true,
+  "rows_compared": 7,
+  "numeric_columns": 16,
+  "absolute_tolerance": 1e-12,
+  "max_absolute_difference": 0.0,
+  "source_sha256": {
+    "tmp/kaggle-qa/v5/out04_pulse/cv_results.csv": "95b5fa9d8dc1c691483b3c6d6cf3a11e4c53b007cd7e58fe283aa2f5e452714b",
+    "tmp/kaggle-qa/v6/out04_full/cv_results.csv": "c6e5571f11a58cfb85fac37942a077eeab11c4b99d959544ba07efb3beb0d2c9"
+  }
+}

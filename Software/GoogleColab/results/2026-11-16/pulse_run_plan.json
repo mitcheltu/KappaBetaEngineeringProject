@@ -1,0 +1,58 @@
+{
+  "augmentation": {
+    "copies": 4,
+    "excluded": "time stretching (changes heart rate)",
+    "kinds": [
+      "respiratory amplitude modulation <= 30%",
+      "healthy-chest motion artefact burst 2-6 s",
+      "band-limited sensor noise"
+    ],
+    "swap_probability": 0.5
+  },
+  "cnn_v5": {
+    "batch": 32,
+    "early_stop_fraction": 0.15,
+    "max_epochs": 80,
+    "optimizer": "AdamW lr 2e-3 wd 1e-3",
+    "patience": 10,
+    "seeds": 3
+  },
+  "gate_min_precision": 0.9,
+  "gate_model": "HistGradientBoosting, same fixed hyperparameters as boosted_trees",
+  "healthy_neg_per_participant": 50,
+  "independent_validation": false,
+  "inspected_split": true,
+  "persistence": [
+    2,
+    3
+  ],
+  "quick": false,
+  "seed": 20261109,
+  "selection_rule": "Among rule_definitions and each learned model at its high_specificity point: keep those whose ICU outer-CV sensitivity is >= that of rule_definitions (untuned published definitions); choose the one with the fewest false alert starts per monitored hour on WILDPPG_TEST_IDS under the prior-window gate; break ties by AUROC. 2-of-3 persistence is reported, not used for selection.",
+  "train_step_s": 16,
+  "version": "v5 audit 2026-11-16",
+  "visible_ratio": [
+    0.8,
+    1.2
+  ],
+  "wildppg_test": [
+    "p5d",
+    "p9p",
+    "qm9",
+    "ssx",
+    "trh",
+    "tz8",
+    "u7y",
+    "w4p"
+  ],
+  "wildppg_train": [
+    "an0",
+    "e61",
+    "fex",
+    "k2s",
+    "kjd",
+    "l38",
+    "n31",
+    "ngh"
+  ]
+}

@@ -1,0 +1,93 @@
+{
+  "rule": "Among rule_definitions and each learned model at its high_specificity point: keep those whose ICU outer-CV sensitivity is >= that of rule_definitions (untuned published definitions); choose the one with the fewest false alert starts per monitored hour on WILDPPG_TEST_IDS under the prior-window gate; break ties by AUROC. 2-of-3 persistence is reported, not used for selection.",
+  "rule_definitions_sensitivity": 0.2682926829268293,
+  "selected": {
+    "model": "cnn_1d",
+    "operating_point": "high_specificity"
+  },
+  "status": "provisional research ranking only; not deployment authorization",
+  "limitations": [
+    "selection uses inspected WildPPG comparison",
+    "original rule filters ungated sensitivity but ranks gated false alarms",
+    "gated sensitivity and coverage must be reviewed together; see persistence_icu.csv"
+  ],
+  "candidates": [
+    {
+      "model": "cnn_1d",
+      "operating_point": "high_specificity",
+      "AUROC": 0.6931258187262179,
+      "sensitivity": 0.4065040650406504,
+      "specificity": 0.8925831202046036,
+      "per_hour": 15.847084578988254,
+      "ci95_hi": 17.5374106862085,
+      "monitored_fraction": 0.21684600620712186,
+      "eligible": true
+    },
+    {
+      "model": "cnn_v5_h",
+      "operating_point": "high_specificity",
+      "AUROC": 0.774405838687543,
+      "sensitivity": 0.5609756097560976,
+      "specificity": 0.8516624040920716,
+      "per_hour": 20.507991808102446,
+      "ci95_hi": 22.41908820037105,
+      "monitored_fraction": 0.21684600620712186,
+      "eligible": true
+    },
+    {
+      "model": "boosted_trees_h",
+      "operating_point": "high_specificity",
+      "AUROC": 0.7615453392385587,
+      "sensitivity": 0.37398373983739835,
+      "specificity": 0.8900255754475703,
+      "per_hour": 60.80365339798969,
+      "ci95_hi": 64.03300962768799,
+      "monitored_fraction": 0.21684600620712186,
+      "eligible": true
+    },
+    {
+      "model": "rule_definitions",
+      "operating_point": "definition",
+      "AUROC": null,
+      "sensitivity": 0.2682926829268293,
+      "specificity": 0.8925831202046036,
+      "per_hour": 99.0654645606271,
+      "ci95_hi": 103.1642543704362,
+      "monitored_fraction": 0.21684600620712186,
+      "eligible": true
+    },
+    {
+      "model": "cnn_v5",
+      "operating_point": "high_specificity",
+      "AUROC": 0.7828894017840435,
+      "sensitivity": 0.4634146341463415,
+      "specificity": 0.8925831202046036,
+      "per_hour": 105.67547844918906,
+      "ci95_hi": 109.90604984320981,
+      "monitored_fraction": 0.21684600620712186,
+      "eligible": true
+    },
+    {
+      "model": "boosted_trees",
+      "operating_point": "high_specificity",
+      "AUROC": 0.7863306510302954,
+      "sensitivity": 0.3821138211382114,
+      "specificity": 0.907928388746803,
+      "per_hour": 234.4860055083449,
+      "ci95_hi": 240.7469347269667,
+      "monitored_fraction": 0.21684600620712186,
+      "eligible": true
+    },
+    {
+      "model": "logistic",
+      "operating_point": "high_specificity",
+      "AUROC": 0.6944357806749423,
+      "sensitivity": 0.25203252032520324,
+      "specificity": 0.8951406649616368,
+      "per_hour": 94.53167298321603,
+      "ci95_hi": 98.53751571637565,
+      "monitored_fraction": 0.21684600620712186,
+      "eligible": false
+    }
+  ]
+}

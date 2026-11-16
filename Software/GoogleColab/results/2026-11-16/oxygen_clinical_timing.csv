@@ -1,0 +1,17 @@
+variant,reference_crossing,device_traces,warned,median_warning_minus_reference_s,latest_warning_minus_reference_s
+concern_baseline,False,8,1,,
+concern_baseline,True,16,15,-11.0,67.0
+concern_level,False,8,0,,
+concern_level,True,16,14,-3.5,67.0
+concern_trend,False,8,2,,
+concern_trend,True,16,16,-30.5,61.0
+deficit_dose,False,8,4,,
+deficit_dose,True,16,16,-119.0,-47.0
+kalman_delay,False,8,0,,
+kalman_delay,True,16,15,-9.0,65.0
+kalman_level,False,8,0,,
+kalman_level,True,16,15,-9.0,65.0
+threshold,False,8,0,,
+threshold,True,16,16,-7.0,62.0
+threshold_persist,False,8,0,,
+threshold_persist,True,16,16,4.0,65.0

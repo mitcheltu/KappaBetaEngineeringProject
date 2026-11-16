@@ -1,0 +1,98 @@
+{
+  "an0": {
+    "bytes": 295671696,
+    "sha256": "999d262e1081c202eec095b36f59c1626a4aa3b272eee0cf02c1cdf7bb935c8e",
+    "pinned_source_etag": "d185bc1ae93e4c9848524e1aab22a39b",
+    "provenance": "local file fingerprint; downloader verifies source ETag/range; structure and rates checked on read"
+  },
+  "e61": {
+    "bytes": 296257912,
+    "sha256": "8acba594d837aada50340cf9db17c780d69af1fc30f5723801ea9c15f2d969fd",
+    "pinned_source_etag": "f88e7a783153615a128013363f2d548e",
+    "provenance": "local file fingerprint; downloader verifies source ETag/range; structure and rates checked on read"
+  },
+  "fex": {
+    "bytes": 320834792,
+    "sha256": "23a6eeea66633cdb625fde0f4118c736262b16fcc36ab7ce4453ce1d6fa4703e",
+    "pinned_source_etag": "7273ac5694d4dd2f91aa264e00ddf00a",
+    "provenance": "local file fingerprint; downloader verifies source ETag/range; structure and rates checked on read"
+  },
+  "k2s": {
+    "bytes": 365403792,
+    "sha256": "059fff37d77f29b68758ed4c30e1f693696a0c847061409ecdccb75c6a041086",
+    "pinned_source_etag": "52134984b7904d0145a99c08d15743bd",
+    "provenance": "local file fingerprint; downloader verifies source ETag/range; structure and rates checked on read"
+  },
+  "kjd": {
+    "bytes": 321207976,
+    "sha256": "86a4257740e65738a5d7aa97299444b886de1d9eb29b4c3858cc16fac69bd4f2",
+    "pinned_source_etag": "3eefd5de96a73e60bac2e58db0bc1096",
+    "provenance": "local file fingerprint; downloader verifies source ETag/range; structure and rates checked on read"
+  },
+  "l38": {
+    "bytes": 319555472,
+    "sha256": "2f78f24ae83939bf0a9fcee4fb4292a6cce8a65356cb5511b25a4f3919e9e33c",
+    "pinned_source_etag": "82658918d9bfd74ae511f227a7224343",
+    "provenance": "local file fingerprint; downloader verifies source ETag/range; structure and rates checked on read"
+  },
+  "n31": {
+    "bytes": 317742648,
+    "sha256": "c01178a83a2c3a0d5f960b7c5e360bf19560681fea2f4fbf33b44f1ffdf421f5",
+    "pinned_source_etag": "226c271e17ecea4ddb7ed844afc4212f",
+    "provenance": "local file fingerprint; downloader verifies source ETag/range; structure and rates checked on read"
+  },
+  "ngh": {
+    "bytes": 352395448,
+    "sha256": "7e1c0f7403572f5d0d758202ac282e0c9be8d7e3971d295c3d449ca257f4ea46",
+    "pinned_source_etag": "e59df9850310836a42df52caa9012a2b",
+    "provenance": "local file fingerprint; downloader verifies source ETag/range; structure and rates checked on read"
+  },
+  "p5d": {
+    "bytes": 346957672,
+    "sha256": "67fc270ed395b0cfac8fae4f4a5b9980cdecdf7214f84567cc7b9e3d9b5f29e3",
+    "pinned_source_etag": "a9128090b639d6c0b97532a12bef7c47",
+    "provenance": "local file fingerprint; downloader verifies source ETag/range; structure and rates checked on read"
+  },
+  "p9p": {
+    "bytes": 299989752,
+    "sha256": "c64f389ab72ecc42aaf2425feba6f9237d02ca6fd2bb9a0621d8a45d14b3ab07",
+    "pinned_source_etag": "b35315f9235f273e6b5363aa43e28a30",
+    "provenance": "local file fingerprint; downloader verifies source ETag/range; structure and rates checked on read"
+  },
+  "qm9": {
+    "bytes": 315823416,
+    "sha256": "c96d695188c4e3eb818e78d08ed5e23f743662dc9285cb15b335cff8be87bafd",
+    "pinned_source_etag": "68ef8616be330628e521e38d75d2eaa4",
+    "provenance": "local file fingerprint; downloader verifies source ETag/range; structure and rates checked on read"
+  },
+  "ssx": {
+    "bytes": 303828216,
+    "sha256": "f7a4d1bb0f83959ed21beaeba098b2878ed57240bf51a056a136a4f7e05201a9",
+    "pinned_source_etag": "fd7dcc41fc08eb4213e2985580705a75",
+    "provenance": "local file fingerprint; downloader verifies source ETag/range; structure and rates checked on read"
+  },
+  "trh": {
+    "bytes": 345358264,
+    "sha256": "a03f6df79c2fd9e55428d9037bb7a663735b24461e349c807eb8113d7c7b93f5",
+    "pinned_source_etag": "f82b2148513c5b9e5924146934e30bab",
+    "provenance": "local file fingerprint; downloader verifies source ETag/range; structure and rates checked on read"
+  },
+  "tz8": {
+    "bytes": 348397048,
+    "sha256": "52945c91bfb2e7cb448de1f15e0e87b3d05518dc28d4b5c460ea4ff8425fcc4f",
+    "pinned_source_etag": "82cc5f445aade45c7d3d6aff8d143577",
+    "provenance": "local file fingerprint; downloader verifies source ETag/range; structure and rates checked on read"
+  },
+  "u7y": {
+    "bytes": 317955896,
+    "sha256": "4709495f2284d28179edb458e7c7638d02f9485722edc8ae5ed8fb8b5195fb91",
+    "pinned_source_etag": "de7445d86d476185a62da918eed15c8e",
+    "provenance": "local file fingerprint; downloader verifies source ETag/range; structure and rates checked on read"
+  },
+  "w4p": {
+    "bytes": 333469688,
+    "sha256": "1d9a227a9a74181b86ad7ddeb371498c9b8d9e909c8e54d8ea57d2f0c5de21c2",
+    "pinned_source_etag": "b1a570b7c305275c050467702c9ab2db",
+    "provenance": "local file fingerprint; downloader verifies source ETag/range; structure and rates checked on read"
+  }
+}

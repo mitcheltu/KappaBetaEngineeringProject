@@ -1,0 +1,79 @@
+{
+  "caveat": "Two automatic estimates, not annotated ECG ground truth; cannot establish accuracy.",
+  "ids": [
+    "an0",
+    "e61",
+    "fex",
+    "k2s",
+    "kjd",
+    "l38",
+    "n31",
+    "ngh",
+    "p5d",
+    "p9p",
+    "qm9",
+    "ssx",
+    "trh",
+    "tz8",
+    "u7y",
+    "w4p"
+  ],
+  "windows": 4560,
+  "nb02_reference_coverage": 0.5098684210526315,
+  "summary": [
+    {
+      "detector": "v4_bpm",
+      "min_periodicity": 0.0,
+      "windows": 4560,
+      "median_abs_disagreement_bpm": 7.784810126582272,
+      "fraction_within_10_bpm": 0.5346491228070176,
+      "median_detector_bpm": 97.5,
+      "median_periodic_bpm": 80.0
+    },
+    {
+      "detector": "v4_bpm",
+      "min_periodicity": 0.5,
+      "windows": 998,
+      "median_abs_disagreement_bpm": 2.126865671641795,
+      "fraction_within_10_bpm": 0.7905811623246493,
+      "median_detector_bpm": 101.25,
+      "median_periodic_bpm": 92.53012048192771
+    },
+    {
+      "detector": "v5_bpm",
+      "min_periodicity": 0.0,
+      "windows": 4560,
+      "median_abs_disagreement_bpm": 2.5961538461538396,
+      "fraction_within_10_bpm": 0.8085526315789474,
+      "median_detector_bpm": 75.0,
+      "median_periodic_bpm": 80.0
+    },
+    {
+      "detector": "v5_bpm",
+      "min_periodicity": 0.5,
+      "windows": 998,
+      "median_abs_disagreement_bpm": 1.2198795180722897,
+      "fraction_within_10_bpm": 0.9609218436873748,
+      "median_detector_bpm": 90.0,
+      "median_periodic_bpm": 92.53012048192771
+    },
+    {
+      "detector": "nb02_bpm",
+      "min_periodicity": 0.0,
+      "windows": 2325,
+      "median_abs_disagreement_bpm": 0.4173005868289579,
+      "fraction_within_10_bpm": 0.9595698924731183,
+      "median_detector_bpm": 84.16438356164383,
+      "median_periodic_bpm": 83.47826086956522
+    },
+    {
+      "detector": "nb02_bpm",
+      "min_periodicity": 0.5,
+      "windows": 1682,
+      "median_abs_disagreement_bpm": 0.2526775649817665,
+      "fraction_within_10_bpm": 0.9851367419738407,
+      "median_detector_bpm": 87.47152619589977,
+      "median_periodic_bpm": 87.27272727272727
+    }
+  ]
+}

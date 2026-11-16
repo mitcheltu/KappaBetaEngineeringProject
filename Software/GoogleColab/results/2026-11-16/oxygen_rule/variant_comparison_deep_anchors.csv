@@ -1,0 +1,8 @@
+variant,crossing_warned_of_16,noncrossing_warned_of_8,median_warning_minus_reference_s,breath_hold_alert_starts,control_alert_starts
+concern_level,14,0,-3.5,0,0
+threshold,16,0,-7.0,0,0
+threshold_persist,16,0,4.0,0,0
+concern_baseline,15,1,-11.0,0,0
+concern_trend,16,2,-30.5,0,0
+deficit_dose,16,4,-119.0,0,0
+kalman_level,15,0,-9.0,0,0
