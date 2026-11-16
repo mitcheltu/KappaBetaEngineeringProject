@@ -143,8 +143,23 @@ publishes their scores, input intervals, validity, and completion time under
 one round ID. The depth component uses the existing one-second sink-rate
 estimator; the PPG component uses the explicitly marked dummy score. After two
 consecutive valid negative CNN results from full rounds, the gate closes and
-processing returns to CNN-only inference. Existing actuator behavior does not
-consume the combined risk score.
+processing returns to CNN-only inference.
+
+The actuator task reads each newly published round from the active
+`RiskRoundStore` populated by `Imu.ino`. Automatic starts require a fresh round
+within `Config::RISK_RESULT_STALE_AFTER_MS`, an open CNN gate, valid fusion, and
+`combinedRisk >= Config::FUSION_TRIGGER_THRESHOLD`. One qualifying round starts
+the sequence without an extra persistence delay. Round IDs prevent repeated
+reads from restarting it. Each qualifying gate episode is latched until a new
+fresh closed-gate result arrives; a later qualifying episode can then start a
+new sequence. Gate closure never stops an active sequence. Physical SOS and
+Serial `sos` continue to start the full sequence regardless of this threshold.
+
+`Config::FUSION_TRIGGER_THRESHOLD` is currently `-1.0` (`UNSET`), outside the
+valid risk range of 0.0–1.0, so automatic starts are disabled. Set it to a
+chosen value in that range to enable them. The PPG risk remains the explicitly
+marked dummy value (0.0) and still contributes to fusion when configured; it
+does not represent a physiological risk estimate.
 
 The latest round is available through the read/notify BLE risk characteristic
 (`Config::RISK_UUID`). Its 96-byte little-endian payload contains the round ID,
@@ -170,19 +185,32 @@ Compile for the ESP32-S3 using the command in the setup section. A successful
 build cannot verify live BLE delivery or actual sensor scheduling; the 50 ms
 IMU cadence and PPG acquisition impact still need hardware measurement.
 
-## Temporary blue LED countdown
+## Manual vibration and pump sequence
 
-SOS now turns the onboard RGB LED **solid blue for 10 seconds** instead of
-running the vibration motor. The LED then turns off and the pump runs until
-Cancel or `off`. Cancel, disabled controls and the existing battery interlock
-turn both outputs off. The vibration motor gate on GPIO7 stays LOW throughout.
+Physical SOS and Serial `sos` start the same nonblocking sequence:
 
-`Config::COUNTDOWN_LED_PIN` in `FirmwareConfig.h` defaults to **GPIO48** for the
-original ESP32-S3-DevKitC-1 and Wokwi. For a **v1.1** board, change it to **38**;
-see the [Espressif board revisions](https://docs.espressif.com/projects/esp-faq/en/latest/hardware-related/development-board.html).
-The LED uses `rgbLedWrite` with only its blue channel enabled. The existing BLE
-bit 5 / `vibrationOn` field now reports this temporary countdown indicator;
-packet layouts and countdown timing are unchanged.
+1. `VIBRATING`: GPIO7 is HIGH for 2,000 ms; the pump output is LOW.
+2. `PUMP_RAMP`: vibration is LOW. GPIO13 outputs 20 kHz LEDC PWM, with duty
+   computed from elapsed time as `PUMP_PWM_MAX_DUTY * min(elapsed_ms, 2000) / 2000`.
+   The 10-bit duty range is 0–1023 and is updated about every 5 ms. This uses
+   the Arduino-ESP32 3.3.7 pin-based LEDC calls `ledcAttach`, `ledcWrite`, and
+   `ledcDetach`.
+3. `PUMP_RUNNING`: PWM is detached and GPIO13 is held HIGH until Cancel, Serial
+   `off`, or the existing battery interlock stops the sequence.
+
+GPIO13 drives DRV8871 IN1; this firmware assumes IN2 is held LOW externally.
+Cancel and `off` stop PWM, set GPIO13 LOW, set GPIO7 LOW, and return to IDLE.
+Physical SOS still requires release before it can be armed again. The actuator
+control task owns runtime GPIO and LEDC changes; acquisition, inference, BLE and
+history continue in their existing tasks. A PWM setup, write, or detach failure
+aborts the sequence with both outputs commanded LOW.
+
+The BLE packet layout and protocol version remain unchanged. System-packet bit
+2 reports the pump command during ramp and running, bit 5 reports the actual
+vibration output, bit 6 marks the 2,000 ms vibration phase, and bit 7 identifies
+hardware with a real vibration motor. The existing 16-bit field at offset 10
+reports remaining vibration time while bit 6 is set. Firmware `status` reports
+the exact stage and pump duty percentage; BLE v1 has no separate ramp-stage bit.
 
 ## Serial diagnostics
 
@@ -203,7 +231,7 @@ Values marked invalid/stale must not be interpreted as current measurements.
 | `log off` | Disable automatic logs; explicit command replies still print |
 | `help` | Command list |
 | `sos` | Request the manual sequence; the control task reports acceptance/rejection |
-| `off` | Turn off the blue LED and stop the pump |
+| `off` | Stop vibration and the pump immediately |
 | `z` | Take a new pressure sample for surface zero |
 | `calibrate gyro` | Capture stationary gyro bias; keep the IMU motionless |
 | `clear calibration` | Clear runtime IMU calibration biases |
@@ -242,7 +270,7 @@ Example diagnostic messages (illustrative voltages):
 
 ```text
 [      2500 ms] WARN  BATTERY  GPIO1=2300 mV => battery=4600 mV; INVALID_HIGH; SOS BLOCKED (allowed 3400..4350 mV)
-[      2500 ms] INFO  ACTUATOR IDLE: blue_led=0 pump=0; vibration=0; reason=INVALID_HIGH
+[      2500 ms] INFO  ACTUATOR IDLE: vibration=0 pump_command=0 duty=0%; reason=INVALID_HIGH
 [      3000 ms] WARN  SOS      button press REJECTED: INVALID_HIGH
 ```
 

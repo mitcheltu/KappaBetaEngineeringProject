@@ -90,6 +90,16 @@ class RiskRoundStore {
     return available;
   }
 
+  // The actuator task polls this without waiting so Cancel remains responsive
+  // if the processing task is publishing a round at the same time.
+  bool trySnapshot(RiskRoundResult& result) const {
+    if (!mutex_ || xSemaphoreTake(mutex_, 0) != pdTRUE) return false;
+    const bool available = available_;
+    if (available) result = latest_;
+    xSemaphoreGive(mutex_);
+    return available;
+  }
+
  private:
   bool lock() const {
     return mutex_ && xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE;

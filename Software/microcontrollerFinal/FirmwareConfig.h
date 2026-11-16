@@ -4,7 +4,7 @@
 #include "imuDeployCNN/imu_inference_config.h"
 
 // ESP32-S3-DevKitC-1-N8R8 GPIO numbers, not physical header positions.
-// Rev F wiring, with the user-requested pump replacing the solenoid on GPIO16.
+// Rev F wiring. GPIO13 drives DRV8871 IN1; hold IN2 LOW externally.
 // Electrical/README.md lists the pin and power assumptions still to validate.
 namespace Config {
 // Selected depth-sensor hardware: GY-MS5837-30BA breakout, 3.3 V I2C logic.
@@ -13,10 +13,14 @@ namespace Config {
 constexpr int I2C_SDA = 8, I2C_SCL = 9; // Shared, pulled up to 3.3 V.
 constexpr int IMU_INT1 = 4, PPG_INT = 15; // Inputs; currently polled over I2C.
 constexpr int CANCEL_BUTTON = 5, SOS_BUTTON = 6; // NO reeds to GND, active LOW.
-constexpr int VIBRATION_GATE = 7; // Rev F MOTOR_EN -> R1 -> Q1; held LOW for now.
-constexpr int COUNTDOWN_LED_PIN = 48; // Onboard RGB: DevKitC-1 v1.0/Wokwi; v1.1 uses 38.
-constexpr uint8_t COUNTDOWN_LED_BLUE = 64; // RGB blue brightness (0..255).
-constexpr int PUMP_GATE = 16; // Former SOL_EN -> R3 -> Q2; active HIGH.
+constexpr int VIBRATION_GATE = 7; // Active-high vibration motor gate.
+constexpr int PUMP_GATE = 13; // DRV8871 IN1; IN2 is held LOW externally.
+constexpr uint32_t VIBRATION_DURATION_MS = 2000;
+constexpr uint32_t PUMP_RAMP_DURATION_MS = 2000;
+constexpr uint32_t PUMP_PWM_FREQUENCY_HZ = 20000;
+constexpr uint8_t PUMP_PWM_RESOLUTION_BITS = 10;
+constexpr uint32_t PUMP_PWM_MAX_DUTY =
+    (1UL << PUMP_PWM_RESOLUTION_BITS) - 1;
 constexpr int BATTERY_ADC = 1; // ADC1, midpoint of R5/R6 (100k/100k).
 constexpr uint8_t IMU_ADDRESS = 0x68, PPG_ADDRESS = 0x57, DEPTH_ADDRESS = 0x76;
 constexpr uint32_t I2C_HZ = 400000;
@@ -33,15 +37,13 @@ constexpr float DEPTH_RISK_PROFILE_DISPLACED_VOLUME_M3 = 0.070f;
 constexpr float DEPTH_RISK_PROFILE_PROJECTED_AREA_M2 = 0.70f;
 constexpr float BATTERY_DIVIDER_RATIO = 2.0f; // R5 = R6 = 100 kohm.
 
-// Temporary manual bench test: SOS -> blue LED 10s -> pump runs until Cancel.
-// Cancel stops both; the vibration motor stays off.
+// Manual actuator sequence: vibrate 2 s, PWM-ramp the pump for 2 s, then
+// hold the pump on until Cancel/off. Both outputs stop on battery interlock.
 // This enables GPIO commands, not a hardware certification.
-// CrocSee B09XH1GYYQ: 12 V recommended, <=350 mA listed load current.
-// Startup/stall current, Q2 drive and D3/boost suitability still need validation.
 constexpr bool ENABLE_ACTUATOR_TESTS = true;
 constexpr uint16_t ACTUATOR_MIN_BATTERY_MV = 3400; // Existing battery interlock.
 constexpr uint16_t BATTERY_VALID_MIN_MV = 2500, BATTERY_VALID_MAX_MV = 4350;
-// Steady HIGH/LOW switching, no PWM or pump-specific library. No flow feedback.
+// GPIO13 uses Arduino-ESP32 LEDC PWM during the nonblocking ramp. No flow feedback.
 
 // Serial diagnostics: 0=ERROR, 1=WARN, 2=INFO, 3=DEBUG. Runtime: log info/debug/off.
 constexpr uint8_t DEFAULT_LOG_LEVEL = 2;
@@ -76,6 +78,11 @@ constexpr uint32_t RISK_ROUND_MAX_DEPTH_ENDPOINT_SKEW_US =
 constexpr float CNN_SCORE_THRESHOLD = kImuGateThreshold;
 constexpr float DEPTH_FUSION_WEIGHT = 0.5f;
 constexpr float PPG_FUSION_WEIGHT = 0.5f;
+// UNSET disables automatic actuator starts. Configure a combined-risk threshold
+// in the valid 0..1 range before automatic starts can be enabled.
+constexpr float FUSION_TRIGGER_THRESHOLD = -1.0f;
+constexpr bool FUSION_TRIGGER_THRESHOLD_CONFIGURED =
+    FUSION_TRIGGER_THRESHOLD >= 0.0f && FUSION_TRIGGER_THRESHOLD <= 1.0f;
 
 // MAX30102 setup: 100 Hz internally with four-sample averaging produces about
 // 25 FIFO readings/second. Risk analysis uses a 100-reading window advanced

@@ -137,11 +137,20 @@ void logStatus() {
       Config::BATTERY_ADC, static_cast<unsigned>(battery >> 16), Config::BATTERY_DIVIDER_RATIO,
       static_cast<unsigned>(battery & 0xffff), batteryConditionName(batteryCondition(battery & 0xffff)),
       Config::ACTUATOR_MIN_BATTERY_MV, Config::BATTERY_VALID_MAX_MV);
-  logReply("CONTROL", "task=%s enabled=%d SOS=%s Cancel=%s armed=%d stage=%s blue_led=%d pump=%d countdown=%lu ms; vibration=0",
+  const uint16_t actuator = actuatorDetails.load();
+  const auto stage = static_cast<BenchSequence::Stage>(actuator & 0xff);
+  const uint8_t dutyPercent = static_cast<uint8_t>(actuator >> 8);
+  logReply("CONTROL", "task=%s enabled=%d SOS=%s Cancel=%s armed=%d stage=%s vibration=%d pump_command=%d duty=%u%% vibration_remaining=%lu ms",
       controlReady ? "ready" : "FAILED", Config::ENABLE_ACTUATOR_TESTS,
       (controls & 16) ? "pressed" : "released", (controls & 8) ? "pressed" : "released",
-      sosReady.load(), (controls & 64) ? "COUNTDOWN" : (controls & 4) ? "RUNNING" : "IDLE",
-      !!(controls & 32), !!(controls & 4), static_cast<unsigned long>(controls >> 8));
+      sosReady.load(), BenchSequence::stageName(stage), !!(controls & 32),
+      !!(controls & 4), static_cast<unsigned>(dutyPercent),
+      static_cast<unsigned long>(controls >> 8));
+  if (Config::FUSION_TRIGGER_THRESHOLD_CONFIGURED)
+    logReply("AUTO", "fusion_trigger=enabled threshold=%.3f episode_latched=%d",
+        Config::FUSION_TRIGGER_THRESHOLD, autoTriggerEpisodeLatched.load());
+  else
+    logReply("AUTO", "fusion_trigger=disabled threshold=UNSET; manual SOS remains available");
   logReply("SENSORS", "I2C=%d BMI270 ready/fresh=%d/%d MS5837=%d/%d MAX30102=%d/%d errors=%lu FIFO_gaps=%lu",
       busReady.load(), imuReady.load(), imuFresh,
       depthReady.load(), depthFresh && depth.sensorValid,

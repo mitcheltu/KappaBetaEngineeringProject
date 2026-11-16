@@ -1,6 +1,6 @@
 // Final ESP32-S3 integration firmware. Pins: FirmwareConfig.h.
 // Wiring: ../../Electrical/README.md.
-// SOS: blue LED 10s, then pump until Cancel. Serial: help, status, z,
+// SOS: vibrate 2s, pump PWM-ramp 2s, then run until Cancel. Serial: help, status, z,
 // calibrate gyro, clear calibration, off, sos, log debug.
 #include "FirmwareShared.h"
 #include "imuDeployCNN/imu_cnn_model_data.h"
@@ -34,17 +34,19 @@ std::atomic<bool> gyroCalibrationRequested{false}, gyroCalibrationClearRequested
 std::atomic<uint16_t> batteryMv{UINT16_MAX};
 std::atomic<uint32_t> batteryDiagnostic{UINT32_MAX};
 std::atomic<bool> sosReady{false};
-// Low byte: system flags 2..6; bits 8..23: countdown ms. One coherent snapshot.
+// Low byte: system flags; bits 8..23: vibration time remaining. One snapshot.
 std::atomic<uint32_t> actuatorState{0};
+std::atomic<uint16_t> actuatorDetails{0};
+std::atomic<bool> autoTriggerEpisodeLatched{false};
 bool controlReady = false;
 TaskHandle_t controlTaskHandle = nullptr;
 TaskHandle_t acquisitionTaskHandle = nullptr, processingTaskHandle = nullptr;
 
 void setup() {
-  // Active-high low-side gates, with Rev F external 100k pulldowns.
-  digitalWrite(Config::PUMP_GATE, LOW); pinMode(Config::PUMP_GATE, OUTPUT);
-  digitalWrite(Config::VIBRATION_GATE, LOW); pinMode(Config::VIBRATION_GATE, OUTPUT);
-  rgbLedWrite(Config::COUNTDOWN_LED_PIN, 0, 0, 0);
+  // Active-high gates; Rev F external pulldowns hold outputs off until the
+  // actuator control task takes ownership and writes their initial LOW state.
+  pinMode(Config::PUMP_GATE, OUTPUT);
+  pinMode(Config::VIBRATION_GATE, OUTPUT);
   pinMode(Config::CANCEL_BUTTON, INPUT_PULLUP); pinMode(Config::SOS_BUTTON, INPUT_PULLUP);
   pinMode(Config::IMU_INT1, INPUT); pinMode(Config::PPG_INT, INPUT); // Wired, but polled.
   analogReadResolution(12); analogSetPinAttenuation(Config::BATTERY_ADC, ADC_11db);
@@ -52,19 +54,23 @@ void setup() {
   const bool loggingReady = initializeLogging();
   const bool buffersReady = sensorBuffers.begin();
   const bool riskResultsReady = riskRoundStore.begin();
-  controlReady = xTaskCreate(controlTask, "bench-test", 4096, nullptr, 3, &controlTaskHandle) == pdPASS;
+  controlReady = xTaskCreate(controlTask, "actuator-control", 4096, nullptr, 3, &controlTaskHandle) == pdPASS;
   // The only direct print is a startup fallback if no writer could be created.
   if (!loggingReady) Serial.println("ERROR: diagnostic queue/task unavailable; logging disabled.");
   if (!buffersReady) logMessage(LogLevel::ERROR, "SENSORS", "Sensor buffer mutex allocation failed; acquisition tasks will not start.");
   if (!riskResultsReady) logMessage(LogLevel::ERROR, "RISK", "Risk result mutex allocation failed; acquisition tasks will not start.");
-  logMessage(LogLevel::INFO, "BOOT", "Final integration: IMU 20Hz/3s window; SOS -> blue LED 10s -> pump until Cancel/off");
+  logMessage(LogLevel::INFO, "BOOT", "Final integration: IMU 20Hz/3s window; SOS -> vibration 2s -> pump 20kHz PWM ramp 2s -> pump until Cancel/off");
   logMessage(controlReady ? LogLevel::INFO : LogLevel::ERROR, "CONTROL",
-      "task=%s enabled=%d; active-low SOS=GPIO%d Cancel=GPIO%d; blue LED=GPIO%d pump=GPIO%d; vibration held off",
+      "task=%s enabled=%d; active-low SOS=GPIO%d Cancel=GPIO%d; vibration=GPIO%d pump=GPIO%d (DRV8871 IN1; IN2 LOW)",
       controlReady ? "ready" : "FAILED (outputs off)", Config::ENABLE_ACTUATOR_TESTS,
-      Config::SOS_BUTTON, Config::CANCEL_BUTTON, Config::COUNTDOWN_LED_PIN, Config::PUMP_GATE);
+      Config::SOS_BUTTON, Config::CANCEL_BUTTON, Config::VIBRATION_GATE, Config::PUMP_GATE);
   logMessage(LogLevel::INFO, "BATTERY", "GPIO%d ADC x %.2f; valid=%u..%u mV; SOS requires >=%u mV; high readings also block",
       Config::BATTERY_ADC, Config::BATTERY_DIVIDER_RATIO, Config::BATTERY_VALID_MIN_MV,
       Config::BATTERY_VALID_MAX_MV, Config::ACTUATOR_MIN_BATTERY_MV);
+  if (Config::FUSION_TRIGGER_THRESHOLD_CONFIGURED)
+    logMessage(LogLevel::INFO, "AUTO", "fusion trigger enabled at combinedRisk >= %.3f", Config::FUSION_TRIGGER_THRESHOLD);
+  else
+    logMessage(LogLevel::INFO, "AUTO", "fusion trigger disabled: FUSION_TRIGGER_THRESHOLD is UNSET; manual SOS remains available");
   initializeHistory();
   const bool imuModelReady = imuRiskEvaluator.begin(
       historyMlWorkspace(0), Config::ML_WORKSPACE_BYTES);

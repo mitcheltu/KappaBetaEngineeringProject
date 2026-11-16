@@ -58,6 +58,9 @@ extern std::atomic<uint16_t> batteryMv;
 extern std::atomic<uint32_t> batteryDiagnostic;
 extern std::atomic<bool> sosReady;
 extern std::atomic<uint32_t> actuatorState;
+// Low byte = BenchSequence::Stage, high byte = current commanded pump duty %.
+extern std::atomic<uint16_t> actuatorDetails;
+extern std::atomic<bool> autoTriggerEpisodeLatched;
 extern bool controlReady;
 extern TaskHandle_t controlTaskHandle;
 extern TaskHandle_t acquisitionTaskHandle, processingTaskHandle;

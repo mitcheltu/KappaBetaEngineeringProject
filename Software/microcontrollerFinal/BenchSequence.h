@@ -1,37 +1,41 @@
 #pragma once
 #include <stdint.h>
+#include "FirmwareConfig.h"
 
-// Manual bench sequence only. GPIO writes belong to the caller's control task.
+// Manual sequence state only. GPIO writes belong to the caller's control task.
 class BenchSequence {
  public:
-  enum class Stage : uint8_t { IDLE, COUNTDOWN, RUNNING };
-  static constexpr uint32_t COUNTDOWN_MS = 10000;
+  enum class Stage : uint8_t { IDLE, VIBRATING, PUMP_RAMP, PUMP_RUNNING };
   Stage stage = Stage::IDLE;
 
-  // runDurationMs == 0 holds RUNNING until Cancel/disable/low battery.
-  // A positive duration is captured when a new sequence starts.
   void update(uint32_t now, bool enabled, bool cancel, bool sosPressed,
-              bool batteryOk, uint32_t runDurationMs) {
-    // Cancel has priority even at either transition deadline. Aborted sequences
-    // never resume, and an already-held SOS cannot restart one when Cancel clears.
+              bool batteryOk) {
+    // Cancel has priority at every phase boundary. An aborted sequence never
+    // resumes, and a held SOS cannot restart it when Cancel is released.
     if (cancel || !enabled || !batteryOk) {
       stage = Stage::IDLE;
       sosArmed = false;
       return;
     }
 
-    if (stage == Stage::COUNTDOWN) {
+    if (stage == Stage::VIBRATING) {
       sosArmed = false;
-      if (now - phaseStartedMs >= COUNTDOWN_MS) {
-        stage = Stage::RUNNING;
+      if (now - phaseStartedMs >= Config::VIBRATION_DURATION_MS) {
+        stage = Stage::PUMP_RAMP;
         phaseStartedMs = now;
       }
       return;
     }
-    if (stage == Stage::RUNNING) {
+    if (stage == Stage::PUMP_RAMP) {
       sosArmed = false;
-      if (runForMs != 0 && now - phaseStartedMs >= runForMs)
-        stage = Stage::IDLE;
+      if (now - phaseStartedMs >= Config::PUMP_RAMP_DURATION_MS) {
+        stage = Stage::PUMP_RUNNING;
+        phaseStartedMs = now;
+      }
+      return;
+    }
+    if (stage == Stage::PUMP_RUNNING) {
+      sosArmed = false;
       return;
     }
 
@@ -44,33 +48,59 @@ class BenchSequence {
     }
     if (sosArmed) {
       sosArmed = false;
-      stage = Stage::COUNTDOWN;
+      stage = Stage::VIBRATING;
       phaseStartedMs = now;
-      runForMs = runDurationMs;
     }
   }
 
-  // Legacy countdown-indicator name; currently drives the blue LED, not the motor.
-  bool vibrationOn() const { return stage == Stage::COUNTDOWN; }
-  bool pumpOn() const { return stage == Stage::RUNNING; }
-  bool canAcceptSos() const { return stage == Stage::IDLE && sosArmed; }
-
-  uint32_t remainingCountdownMs(uint32_t now) const {
-    if (stage != Stage::COUNTDOWN) return 0;
-    const uint32_t elapsed = now - phaseStartedMs;
-    return elapsed < COUNTDOWN_MS ? COUNTDOWN_MS - elapsed : 0;
+  void abort() {
+    stage = Stage::IDLE;
+    sosArmed = false;
   }
 
-  // Zero means no timed stop when RUNNING with runDurationMs == 0; otherwise
-  // zero means the phase is inactive or its deadline has elapsed.
-  uint32_t remainingRunMs(uint32_t now) const {
-    if (stage != Stage::RUNNING || runForMs == 0) return 0;
+  bool startAutomatically(uint32_t now, bool enabled, bool cancel,
+                          bool batteryOk) {
+    if (stage != Stage::IDLE || !enabled || cancel || !batteryOk) return false;
+    stage = Stage::VIBRATING;
+    phaseStartedMs = now;
+    sosArmed = false;
+    return true;
+  }
+
+  bool vibrationOn() const { return stage == Stage::VIBRATING; }
+  bool pumpOn() const {
+    return stage == Stage::PUMP_RAMP || stage == Stage::PUMP_RUNNING;
+  }
+  bool canAcceptSos() const { return stage == Stage::IDLE && sosArmed; }
+
+  uint32_t remainingVibrationMs(uint32_t now) const {
+    if (stage != Stage::VIBRATING) return 0;
     const uint32_t elapsed = now - phaseStartedMs;
-    return elapsed < runForMs ? runForMs - elapsed : 0;
+    return elapsed < Config::VIBRATION_DURATION_MS
+        ? Config::VIBRATION_DURATION_MS - elapsed : 0;
+  }
+
+  uint32_t pumpDuty(uint32_t now) const {
+    if (stage == Stage::PUMP_RUNNING) return Config::PUMP_PWM_MAX_DUTY;
+    if (stage != Stage::PUMP_RAMP) return 0;
+    const uint32_t elapsed = now - phaseStartedMs;
+    const uint32_t rampElapsed = elapsed < Config::PUMP_RAMP_DURATION_MS
+        ? elapsed : Config::PUMP_RAMP_DURATION_MS;
+    return (Config::PUMP_PWM_MAX_DUTY * rampElapsed) /
+        Config::PUMP_RAMP_DURATION_MS;
+  }
+
+  static const char* stageName(Stage value) {
+    switch (value) {
+      case Stage::IDLE: return "IDLE";
+      case Stage::VIBRATING: return "VIBRATING";
+      case Stage::PUMP_RAMP: return "PUMP_RAMP";
+      case Stage::PUMP_RUNNING: return "PUMP_RUNNING";
+    }
+    return "UNKNOWN";
   }
 
  private:
   bool sosArmed = false;
   uint32_t phaseStartedMs = 0;
-  uint32_t runForMs = 0;
 };
