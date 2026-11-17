@@ -37,7 +37,27 @@ New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
 $partition = if ($FlashSize -eq '16M') { 'fatflash' } else { 'default_8MB' }
 $fqbn = "esp32:esp32:esp32s3:FlashSize=$FlashSize,PartitionScheme=$partition,PSRAM=opi,CDCOnBoot=cdc"
 # Do not set --build-path or --clean: allow normal Arduino CLI cache reuse.
-& $ArduinoCli compile @configArgs --fqbn $fqbn --warnings all --jobs $Jobs `
-    --library $depthLibrary --output-dir $outputRoot $PSScriptRoot
+$compileArgs = @('compile') + $configArgs + @('--fqbn', $fqbn, '--warnings', 'all',
+    '--jobs', $Jobs, '--library', $depthLibrary)
+# Core 3.3.12's savehex hooks also copy into sketch/build, even when --output-dir
+# is set. Avoid those redundant copies (and locked older IDE artifacts) by
+# compiling normally, then exporting only completed artifacts ourselves.
+$properties = & $ArduinoCli @compileArgs --show-properties $PSScriptRoot
+if ($LASTEXITCODE -ne 0) { throw 'Unable to resolve the Arduino build directory.' }
+$buildPathLine = $properties | Where-Object { $_ -like 'build.path=*' } | Select-Object -First 1
+if (-not $buildPathLine) { throw 'Arduino CLI did not report build.path.' }
+$artifactRoot = [IO.Path]::GetFullPath($buildPathLine.Substring('build.path='.Length))
+& $ArduinoCli @compileArgs $PSScriptRoot
 if ($LASTEXITCODE -ne 0) { throw "Demo compilation failed with exit code $LASTEXITCODE" }
+if (-not (Test-Path -LiteralPath (Join-Path $artifactRoot 'DrowningWearableDemo.ino.bin'))) {
+  throw 'Compilation did not produce the expected application binary.'
+}
+if ($artifactRoot -ne $outputRoot) {
+  Get-ChildItem -LiteralPath $artifactRoot -File | Where-Object {
+    $_.Name -like 'DrowningWearableDemo.ino.*' -or
+    $_.Name -in @('partitions.csv', 'sdkconfig', 'flash_args', 'boot_app0.bin', 'build.options.json')
+  } | ForEach-Object {
+    Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $outputRoot $_.Name) -Force
+  }
+}
 Write-Output "Demo compiled to $outputRoot (no upload performed)."

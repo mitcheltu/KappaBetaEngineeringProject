@@ -45,7 +45,7 @@ export function LiveTelemetryPanel() {
         icon={connected || pending ? undefined : 'bluetooth'} secondary={connected || pending}
         onPress={connected || pending ? service.disconnect : () => { void service.connect(); }} />
     </View>
-    <Text style={styles.description}>Select your KappaBeta wearable or KappaBetaDemo in the browser’s Bluetooth picker. Saved history downloads when available; the demo streams live readings only. The controls above are a separate demo.</Text>
+    <Text style={styles.description}>Select your KappaBeta wearable or KappaBetaDemo in the browser’s Bluetooth picker. Saved history downloads when available, then live readings begin. Devices without history memory show Live only. The controls above are a separate demo.</Text>
     <SavedHistoryPanel store={historyStore} progress={snapshot.history} connected={connected || snapshot.status === 'syncing'} />
     <View style={styles.grid}>
       <Reading label="DEPTH" value={format(d?.depthM, 3, 'm')} note={depth?.stale ? 'Stale reading' : d?.pressurePa != null && d.depthM == null ? 'Zero at the surface first' : 'Relative to surface baseline'} />

@@ -1581,3 +1581,15 @@ button, a, input, [tabindex] { scroll-margin: 8px; }
   .slider-controls input::-moz-range-track { background: CanvasText; }
   .slider-controls input::-moz-range-thumb { background: Highlight; border: 1px solid CanvasText; }
 }
+
+/* Demo scenarios (Live -> Scenario) */
+.scenario-panel { display: grid; gap: 20px; }
+.scenario-status { display: grid; gap: 8px; }
+.scenario-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.scenario-list li { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+.scenario-list li > div { display: grid; gap: 4px; min-width: 0; }
+.scenario-list li span { color: var(--muted); font-size: 15px; }
+@media (max-width: 560px) {
+  .scenario-list li { flex-direction: column; align-items: stretch; }
+  .scenario-panel .diagnostic-readings { grid-template-columns: 1fr; }
+}

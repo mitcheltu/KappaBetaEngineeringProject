@@ -11,7 +11,9 @@ constexpr size_t RECORD_BYTES = 32;
 constexpr size_t MAX_BLOCK_RECORDS = 64;
 constexpr size_t MAX_ATT_BYTES = 244;
 
-enum class Kind : uint8_t { DEPTH = 1, IMU = 2, PPG = 3, SYSTEM = 4, SURFACE_ZERO = 5 };
+// Kind 6 (demo firmware only): scripted-scenario event, payload is
+// Scenario::EventPayload (ScenarioProtocol.h). Apps older than this kind reject it.
+enum class Kind : uint8_t { DEPTH = 1, IMU = 2, PPG = 3, SYSTEM = 4, SURFACE_ZERO = 5, SCENARIO_EVENT = 6 };
 enum class Opcode : uint8_t { OPEN = 1, ACK = 2, LIVE = 3, POLL = 4, ABORT = 5 };
 enum class StatusType : uint8_t { READY = 1, BLOCK = 2, END = 3, GAP = 4, LIVE = 5, ERROR = 6 };
 enum class Error : uint32_t { BAD_CURSOR = 1, TIMEOUT = 2, INVALID_STATE = 3 };

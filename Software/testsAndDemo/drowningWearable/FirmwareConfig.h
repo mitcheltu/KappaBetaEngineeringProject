@@ -34,18 +34,31 @@ constexpr uint32_t LOG_STATUS_PERIOD_MS = 2000;
 
 // Example optical gate, not a validated wrist/contact classifier.
 constexpr uint32_t PPG_MIN_IR = 50000, PPG_MAX_ADC = 262000;
+// Raw MAX30102 FIFO rate with on-chip averaging off; every raw sample is
+// recorded to history. The Maxim HR/SpO2 routine still receives 25 Hz input:
+// software averages PPG_ALGORITHM_DECIMATION adjacent raw samples.
+constexpr uint16_t PPG_SAMPLE_HZ = 100;
+constexpr uint8_t PPG_ALGORITHM_DECIMATION = 4;
+constexpr uint8_t PPG_FIFO_DEPTH = 32; // MAX30102 hardware FIFO slots.
+constexpr uint32_t PPG_SAMPLE_PERIOD_US = 1000000UL / PPG_SAMPLE_HZ;
+// Full-FIFO time; a longer service gap means samples were lost.
+constexpr uint32_t PPG_FIFO_SPAN_MS = 1000UL * PPG_FIFO_DEPTH / PPG_SAMPLE_HZ;
+static_assert(PPG_SAMPLE_HZ / PPG_ALGORITHM_DECIMATION == 25 &&
+              PPG_SAMPLE_HZ % PPG_ALGORITHM_DECIMATION == 0,
+              "spo2_algorithm.h assumes FS = 25 Hz input");
 constexpr uint32_t TELEMETRY_PERIOD_MS = 200;
 constexpr uint32_t HISTORY_BYTES = 4 * 1024 * 1024;
 constexpr uint32_t ML_WORKSPACE_BYTES = 1024 * 1024; // Two future model workspaces.
 constexpr uint32_t PSRAM_HEADROOM_BYTES = 1024 * 1024;
 constexpr uint32_t IMU_PERIOD_MS = 20, DEPTH_PERIOD_MS = 200;
-constexpr char DEVICE_NAME[] = "KappeBetaWearable";
+constexpr char DEVICE_NAME[] = "KappaBetaWearable";
 constexpr char SERVICE_UUID[] = "e81b6200-7e57-4d8e-b6f4-889c1d4e8270";
 constexpr char DEPTH_UUID[] = "e81b6210-7e57-4d8e-b6f4-889c1d4e8270";
 constexpr char IMU_UUID[] = "e81b6211-7e57-4d8e-b6f4-889c1d4e8270";
 constexpr char PPG_UUID[] = "e81b6212-7e57-4d8e-b6f4-889c1d4e8270";
 constexpr char SYSTEM_UUID[] = "e81b6213-7e57-4d8e-b6f4-889c1d4e8270";
 constexpr char ZERO_DEPTH_UUID[] = "e81b6220-7e57-4d8e-b6f4-889c1d4e8270";
+constexpr char PROFILE_SETTINGS_UUID[] = "e81b6221-7e57-4d8e-b6f4-889c1d4e8270";
 constexpr char HISTORY_INFO_UUID[] = "e81b6230-7e57-4d8e-b6f4-889c1d4e8270";
 constexpr char HISTORY_STATUS_UUID[] = "e81b6231-7e57-4d8e-b6f4-889c1d4e8270";
 constexpr char HISTORY_DATA_UUID[] = "e81b6232-7e57-4d8e-b6f4-889c1d4e8270";

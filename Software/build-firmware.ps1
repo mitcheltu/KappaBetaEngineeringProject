@@ -48,8 +48,8 @@ $sketchbook = $existingConfig.directories.user
 if (-not $sketchbook) { $sketchbook = Join-Path $buildRoot 'sketchbook' }
 
 # Compile the same sketch folder that opens directly in Arduino IDE.
-$sketchRoot = Join-Path $PSScriptRoot 'DrowningWearable'
-if (-not (Test-Path -LiteralPath (Join-Path $sketchRoot 'DrowningWearable.ino'))) {
+$sketchRoot = Join-Path $PSScriptRoot 'testsAndDemo/drowningWearable'
+if (-not (Test-Path -LiteralPath (Join-Path $sketchRoot 'drowningWearable.ino'))) {
   throw 'The DrowningWearable sketch folder is missing its primary .ino file.'
 }
 $binaryRoot = Join-Path $buildRoot 'build'

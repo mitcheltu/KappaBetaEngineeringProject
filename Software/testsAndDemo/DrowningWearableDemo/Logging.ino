@@ -113,8 +113,9 @@ void logStatus() {
   if (battery == UINT32_MAX) logReply("BATTERY", "Not sampled; outputs blocked");
   else logReply("BATTERY", "ADC=%u mV battery=%u mV; required 3400..4350 mV",
       unsigned(battery >> 16), unsigned(battery & 0xffff));
-  logReply("CONTROL", "task=%s stage=%s vibration=%d pump=%d remaining=%lu ms SOS=%d Cancel=%d armed=%d",
-      controlReady ? "ready" : "FAILED", (controls & 64) ? "VIBRATING" : (controls & 4) ? "PUMPING" : "IDLE",
+  logReply("CONTROL", "task=%s PWM_ready=%d stage=%s vibration=%d pump=%d remaining=%lu ms SOS=%d Cancel=%d armed=%d",
+      controlReady ? "ready" : "FAILED", pumpOutputReady.load(),
+      (controls & 64) ? "VIBRATING" : (controls & 4) ? "PUMPING" : "IDLE",
       !!(controls & 32), !!(controls & 4), static_cast<unsigned long>(controls >> 8),
       !!(controls & 16), !!(controls & 8), sosReady.load());
   logReply("SENSORS", "I2C=%d BMI270 ready/fresh=%d/%d MS5837=%d/%d MAX30102=%d/%d errors=%lu PPG_gaps=%lu",
@@ -122,8 +123,10 @@ void logStatus() {
       sensors.depthReady, sensors.pressureValid && now - sensors.pressureMs < 1000,
       sensors.ppgReady, sensors.rawPpgValid && now - sensors.ppgMs < 300,
       static_cast<unsigned long>(sensors.sensorErrors), static_cast<unsigned long>(sensors.ppgOverflows));
-  logReply("STREAM", "BLE=%s live=%d; live-only demo (no history/model); log_dropped=%lu truncated=%lu",
+  logReply("STREAM", "BLE=%s live=%d; history=%lu/%lu records [%lu,%lu); log_dropped=%lu truncated=%lu",
       bleConnected() ? "connected" : "disconnected", bleLiveEnabled(),
+      static_cast<unsigned long>(historyBuffer.size()), static_cast<unsigned long>(historyBuffer.capacity()),
+      static_cast<unsigned long>(historyBuffer.oldest()), static_cast<unsigned long>(historyBuffer.next()),
       static_cast<unsigned long>(Diagnostics::dropped.load()), static_cast<unsigned long>(Diagnostics::truncated.load()));
   logMessage(LogLevel::DEBUG, "VALUES", "pressure=%.1fPa zero=%.1fPa temperature=%.2fC red=%lu IR=%lu HR=%ld(valid=%d) SpO2=%ld(valid=%d)",
       sensors.pressurePa, sensors.surfacePa, sensors.temperatureC,

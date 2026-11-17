@@ -35,6 +35,24 @@ See the [wiring and firmware guide](../../Electrical/README.md) for pin
 assignments, power setup, and manual pump-test behavior. The
 [history protocol](../HISTORY_PROTOCOL.md) describes the BLE history service.
 
+## Settings received from the apps
+
+After the initial sensor-history import completes, the web and iOS apps send
+their last saved resting heart rate, maximum depth, weight and height through
+the optional settings characteristic. They skip this transfer when no settings
+have been saved. An app reads the accepted values back before reporting success.
+See the [settings protocol](../SETTINGS_PROTOCOL.md) for the packet and units.
+
+`ProfileSettings.ino` validates the complete profile and stores a coherent copy
+in RAM. Invalid writes leave the previously accepted profile intact. Values
+survive a Bluetooth disconnect but clear on MCU reset; the next app connection
+can send them again. `readProfileSettings()` returns a thread-safe snapshot with
+`configured`, `restingHeartRateBpm`, `maximumDepthMm`, `weightDeciKg` and
+`heightCm`; check `configured` before use. The convenience methods
+`maximumDepthM()` and `weightKg()` convert units. These received values do not
+currently alter sensor processing or activate the pump. The demo sketch does
+not expose this characteristic.
+
 ## Final IMU pipeline
 
 The BMI270 is represented by the `ImuSensor imu` object. The final firmware

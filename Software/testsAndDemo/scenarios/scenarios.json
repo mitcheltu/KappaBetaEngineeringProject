@@ -1,0 +1,119 @@
+{
+  "purpose": "Scripted demo playback for on-ESP32 inference. Not training, test or evidence data.",
+  "seconds": 110,
+  "rates_hz": {
+    "ir": 100,
+    "imu": 20,
+    "spo2": 1
+  },
+  "units": {
+    "ir": "arbitrary, PLETH convention (rises with blood volume)",
+    "imu": "ax ay az m/s^2, gx gy gz rad/s (IMU CNN training units)",
+    "spo2": "percent; spo2_valid=0 means estimator unavailable"
+  },
+  "scenarios": [
+    {
+      "id": 1,
+      "slug": "normal_swim",
+      "name": "Normal swim",
+      "story": "Front crawl with a healthy pulse and normal SpO2. Expected: no actuation.",
+      "csv": "scenario_1_normal_swim.csv",
+      "imu": {
+        "file": "crawl/SmartWatch20210316_14-40-50_crawl.csv",
+        "start_row": 0,
+        "sha256": "690282650e647a32a9bb00749db70e5c78c9f6f5eb4c5295313be26a61073ca5"
+      },
+      "ir": {
+        "dataset": "WildPPG sternum IR, negated",
+        "participant": "ssx",
+        "fs": 128,
+        "start_s": 1602.0,
+        "source_sha256": "f7a4d1bb0f83959ed21beaeba098b2878ed57240bf51a056a136a4f7e05201a9"
+      },
+      "spo2": {
+        "dataset": "UW/UCSD controlled hypoxemia (c483ae8)",
+        "subject": "100001",
+        "device": "Masimo Radical-7",
+        "start_s": 0
+      }
+    },
+    {
+      "id": 2,
+      "slug": "passive_pulse_stops",
+      "name": "Passive: pulse stops",
+      "story": "Passive-drowning motion; the pulse waveform stops (true ICU asystole alarm). Expected: pulse alert, then actuation once the IMU gate is open.",
+      "csv": "scenario_2_passive_pulse_stops.csv",
+      "imu": {
+        "file": "PassiveDrowning/SmartWatch20210316_14-53-27_PassiveDrowning.csv",
+        "start_row": 0,
+        "sha256": "59f280691f863e2409e054c704096ad5831d90216b48df273a36cadafad71db2"
+      },
+      "ir": {
+        "dataset": "PhysioNet/CinC 2015 PLETH",
+        "record": "a161l",
+        "fs": 250,
+        "alarm": "Asystole",
+        "expert_label_true_alarm": true,
+        "alarm_at_s": 300,
+        "start_s": 210.0,
+        "source_sha256": "1f191ca45f555f05ae23be67c34923e2e1624051669bd24a0e49bdad7e5ef686"
+      },
+      "spo2": {
+        "dataset": "UW/UCSD controlled hypoxemia (c483ae8)",
+        "subject": "100003",
+        "device": "Nellcor N-600X (b)",
+        "start_s": 0
+      }
+    },
+    {
+      "id": 3,
+      "slug": "active_hypoxia",
+      "name": "Active: hypoxia",
+      "story": "Active-drowning struggle while SpO2 falls below 70 % (real controlled-hypoxemia trace). Expected: oxygen alert with the IMU gate open, then actuation.",
+      "csv": "scenario_3_active_hypoxia.csv",
+      "imu": {
+        "file": "ActiveDrowning/SmartWatch20210316_15-21-52_ActiveDrowning.csv",
+        "start_row": 0,
+        "sha256": "1653cdb6175a339ffc3361fe357cdf479d6085d71e5eff9efe80aabf26f88f7d"
+      },
+      "ir": {
+        "dataset": "WildPPG sternum IR, negated",
+        "participant": "u7y",
+        "fs": 128,
+        "start_s": 3566.0,
+        "source_sha256": "4709495f2284d28179edb458e7c7638d02f9485722edc8ae5ed8fb8b5195fb91"
+      },
+      "spo2": {
+        "dataset": "UW/UCSD controlled hypoxemia (c483ae8)",
+        "subject": "100006",
+        "device": "Nellcor N-600X (a)",
+        "start_s": 533
+      }
+    },
+    {
+      "id": 4,
+      "slug": "still_hypoxia_gate_check",
+      "name": "Still + hypoxia (gate)",
+      "story": "Mostly still passive-drowning recording (IMU gate rarely opens) with the same kind of SpO2 fall. Demonstrates the AND rule: oxygen alerts but the gate holds actuation. In a real drowning this would be a miss.",
+      "csv": "scenario_4_still_hypoxia_gate_check.csv",
+      "imu": {
+        "file": "PassiveDrowning/SmartWatch20210316_15-13-52_PassiveDrowning.csv",
+        "start_row": 0,
+        "sha256": "a94efb3314bfefc7a87145642afa4d00febdea7659cdc2ca3e4efc63b27f4641"
+      },
+      "ir": {
+        "dataset": "WildPPG sternum IR, negated",
+        "participant": "u7y",
+        "fs": 128,
+        "start_s": 3566.0,
+        "source_sha256": "4709495f2284d28179edb458e7c7638d02f9485722edc8ae5ed8fb8b5195fb91"
+      },
+      "spo2": {
+        "dataset": "UW/UCSD controlled hypoxemia (c483ae8)",
+        "subject": "100005",
+        "device": "3900P",
+        "start_s": 659
+      }
+    }
+  ]
+}

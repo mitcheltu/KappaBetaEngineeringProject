@@ -7,6 +7,9 @@ import { createIndexedDbHistoryStore, type HistoryStore } from './historyStore';
 import { createHistoryTransfer, type HistoryProgress } from './historyTransfer';
 import type { Preferences } from './preferences';
 import { encodeProfile, PROFILE_UUID, verifyProfileReadback } from './profileProtocol';
+import {
+  decodeCatalog, decodeStatus, encodeCommand, SCENARIO_UUIDS, type ScenarioCatalog, type ScenarioStatus,
+} from './scenarioProtocol';
 
 // Narrow Web Bluetooth interfaces avoid a runtime dependency and allow transport tests.
 export interface GattCharacteristic {
@@ -37,11 +40,19 @@ export type LiveStatus = 'disconnected' | 'selecting' | 'connecting' | 'syncing'
 export type ProfileSyncStatus = 'idle' | 'waiting' | 'sending' | 'synced' | 'unsupported' | 'not-saved' | 'error';
 export type ProfileSync = Readonly<{ status: ProfileSyncStatus; message: string; confirmedProfile?: readonly number[] }>;
 type TimedReading<K extends ReadingKind> = { data: Readings[K]; receivedAt: number; stale: boolean };
+export type ScenarioSupport = 'unknown' | 'available' | 'unsupported';
+/** Demo scenarios: the app can only arm a scenario compiled into the wearable, or abort it before actuation. */
+export type ScenarioSnapshot = Readonly<{
+  support: ScenarioSupport; catalog: ScenarioCatalog | null;
+  status: ScenarioStatus | null; statusAt: number | null; live: boolean;
+  pending: 'start' | 'abort' | null; message: string;
+}>;
+const emptyScenario = (): ScenarioSnapshot => ({ support: 'unknown', catalog: null, status: null, statusAt: null, live: false, pending: null, message: '' });
 export type LiveTelemetry = { [K in ReadingKind]: TimedReading<K> | null };
 export type LiveSnapshot = Readonly<{
   status: LiveStatus; deviceName: string | null; message: string;
   telemetry: LiveTelemetry; zeroPending: boolean; history: HistoryProgress | null;
-  profileSync: ProfileSync;
+  profileSync: ProfileSync; scenario: ScenarioSnapshot;
 }>;
 const emptyTelemetry = (): LiveTelemetry => ({ depth: null, imu: null, ppg: null, system: null });
 
@@ -54,17 +65,21 @@ export function createLiveConnectionService(options: {
   bluetooth?: BluetoothAdapter; now?: () => number; staleAfterMs?: number; checkIntervalMs?: number;
   historyStore?: HistoryStore; historyTimeoutMs?: number; historyPollIntervalMs?: number;
   getSavedPreferences?: () => Preferences | null;
+  scenarioDisconnectDelayMs?: number; randomToken?: () => number;
 } = {}) {
   const now = options.now ?? Date.now;
   const staleAfterMs = options.staleAfterMs ?? STALE_AFTER_MS;
   const listeners = new Set<() => void>();
   let snapshot: LiveSnapshot = Object.freeze({
     status: 'disconnected', deviceName: null, message: '', telemetry: emptyTelemetry(), zeroPending: false, history: null,
-    profileSync: { status: 'idle' as const, message: '' },
+    profileSync: { status: 'idle' as const, message: '' }, scenario: emptyScenario(),
   });
   let generation = 0;
   let device: BleDevice | undefined;
   let command: GattCharacteristic | undefined;
+  let scenarioCommand: GattCharacteristic | undefined;
+  let awaitingToken = 0;
+  let scenarioTimer: ReturnType<typeof setTimeout> | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
   let cleanupNotifications: (() => void)[] = [];
   let disconnectListener: (() => void) | undefined;
@@ -104,6 +119,12 @@ export function createLiveConnectionService(options: {
     const previous = device;
     device = undefined;
     command = undefined;
+    scenarioCommand = undefined;
+    awaitingToken = 0;
+    if (scenarioTimer !== undefined) clearTimeout(scenarioTimer);
+    scenarioTimer = undefined;
+    // Keep the last scenario status visible while disconnected (the wearable is in the water).
+    if (snapshot.scenario.live || snapshot.scenario.pending) publish({ scenario: { ...snapshot.scenario, live: false, pending: null } });
     previous?.gatt?.disconnect();
   }
 
@@ -232,6 +253,8 @@ export function createLiveConnectionService(options: {
       const zero = await gattOperation(activeGeneration, () => service.getCharacteristic(ZERO_DEPTH_UUID));
       if (activeGeneration !== generation || disposed) { disconnectAbandoned(server, chosen); return; }
       command = zero;
+      await setupScenario(activeGeneration, uuid => gattOperation(activeGeneration, () => service.getCharacteristic(uuid)));
+      if (activeGeneration !== generation || disposed) { disconnectAbandoned(server, chosen); return; }
       publish({ status: 'connected' });
       timer = setInterval(refreshStaleness, options.checkIntervalMs ?? 500);
       currentTransfer.enablePolling();
@@ -283,6 +306,83 @@ export function createLiveConnectionService(options: {
     }
   }
 
+  function publishScenario(patch: Partial<ScenarioSnapshot>) { publish({ scenario: { ...snapshot.scenario, ...patch } }); }
+
+  function receiveScenarioStatus(value: DataView, activeGeneration: number) {
+    if (activeGeneration !== generation || disposed) return;
+    let status: ScenarioStatus;
+    try { status = decodeStatus(value); } catch (error) {
+      publishScenario({ message: error instanceof Error ? error.message : 'Invalid scenario status.' });
+      return;
+    }
+    const patch: { -readonly [K in keyof ScenarioSnapshot]?: ScenarioSnapshot[K] } = { status, statusAt: now(), live: true };
+    if (awaitingToken && status.commandToken === awaitingToken) {
+      const wasStart = snapshot.scenario.pending === 'start';
+      awaitingToken = 0;
+      patch.pending = null;
+      if (wasStart && status.state === 'armed') {
+        const name = snapshot.scenario.catalog?.entries.find(e => e.id === status.scenarioId)?.name ?? `#${status.scenarioId}`;
+        patch.message = `"${name}" armed. Disconnecting so the wearable can go in the water; playback starts in ${Math.round(status.remainingMs / 1000)} s.`;
+        const delay = options.scenarioDisconnectDelayMs ?? 2500;
+        scenarioTimer = setTimeout(() => {
+          scenarioTimer = undefined;
+          if (activeGeneration !== generation || disposed) return;
+          disconnect();
+          publishScenario({ message: `"${name}" is running on the wearable. Reconnect after the run to see what happened.` });
+        }, delay);
+      } else if (status.state === 'rejected' || status.reason) {
+        patch.message = status.reasonText || 'The wearable refused the command.';
+      } else if (!wasStart) {
+        patch.message = status.state === 'aborted' ? 'Scenario stopped before the outputs started.' : status.reasonText;
+      }
+    }
+    publishScenario(patch);
+  }
+
+  async function setupScenario(activeGeneration: number, getCharacteristic: (uuid: string) => Promise<GattCharacteristic>) {
+    let catalogCharacteristic: GattCharacteristic, commandCharacteristic: GattCharacteristic, statusCharacteristic: GattCharacteristic;
+    try {
+      catalogCharacteristic = await getCharacteristic(SCENARIO_UUIDS.catalog);
+      commandCharacteristic = await getCharacteristic(SCENARIO_UUIDS.command);
+      statusCharacteristic = await getCharacteristic(SCENARIO_UUIDS.status);
+    } catch {
+      if (activeGeneration === generation) publishScenario({ support: 'unsupported', catalog: null, pending: null, message: '' });
+      return;
+    }
+    try {
+      const catalog = decodeCatalog(await gattOperation(activeGeneration, () => catalogCharacteristic.readValue()));
+      if (activeGeneration !== generation || disposed) return;
+      const notify = () => { if (statusCharacteristic.value) receiveScenarioStatus(statusCharacteristic.value, activeGeneration); };
+      statusCharacteristic.addEventListener('characteristicvaluechanged', notify);
+      cleanupNotifications.push(() => statusCharacteristic.removeEventListener('characteristicvaluechanged', notify));
+      await gattOperation(activeGeneration, () => statusCharacteristic.startNotifications());
+      if (activeGeneration !== generation || disposed) return;
+      scenarioCommand = commandCharacteristic;
+      publishScenario({ support: 'available', catalog, pending: null, message: '' });
+      receiveScenarioStatus(await gattOperation(activeGeneration, () => statusCharacteristic.readValue()), activeGeneration);
+    } catch (error) {
+      if (activeGeneration === generation) publishScenario({ support: 'unsupported', message: error instanceof Error ? error.message : 'Scenario service unavailable.' });
+    }
+  }
+
+  async function sendScenario(opcode: 'start' | 'abort', scenarioId = 0) {
+    const scenario = snapshot.scenario;
+    if (snapshot.status !== 'connected' || !scenarioCommand || scenario.pending || !scenario.catalog) return;
+    const activeGeneration = generation;
+    const token = (options.randomToken ?? (() => 1 + Math.floor(Math.random() * 0xfffe)))();
+    const bytes = encodeCommand(opcode, token, scenarioId, scenario.catalog.catalogCrc);
+    awaitingToken = token;
+    publishScenario({ pending: opcode, message: opcode === 'start' ? 'Arming scenario on the wearable...' : 'Asking the wearable to stop the scenario...' });
+    try {
+      const target = scenarioCommand;
+      await gattOperation(activeGeneration, () => target.writeValueWithResponse(bytes));
+    } catch (error) {
+      if (activeGeneration !== generation) return;
+      awaitingToken = 0;
+      publishScenario({ pending: null, message: error instanceof Error ? error.message : 'Scenario command failed.' });
+    }
+  }
+
   async function zeroDepth() {
     if (snapshot.status !== 'connected' || snapshot.zeroPending || !command) return;
     const activeGeneration = generation;
@@ -302,6 +402,8 @@ export function createLiveConnectionService(options: {
     getSnapshot: () => snapshot,
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     connect, disconnect, zeroDepth, refreshStaleness,
+    startScenario: (id: number) => sendScenario('start', id),
+    abortScenario: () => sendScenario('abort'),
     dispose() { disconnect(); disposed = true; listeners.clear(); },
   };
 }

@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { createLiveConnectionService, type BleDevice, type BluetoothAdapter, type GattCharacteristic, type GattServer } from './liveConnection';
 import { decodePacket, SERVICE_UUID, TELEMETRY_UUIDS, ZERO_DEPTH_UUID } from './telemetryProtocol';
 import { HISTORY_UUIDS } from './historyProtocol';
 import { defaultPreferences } from './preferences';
 import { encodeProfile, PROFILE_UUID, profileMatchesPreferences } from './profileProtocol';
+import { SCENARIO_UUIDS } from './scenarioProtocol';
 
 function packet(flags = 0, uptime = 1234, sequence = 12) {
   const view = new DataView(new ArrayBuffer(20));
@@ -439,4 +441,77 @@ test('late profile read after link loss cannot overwrite the next connection sta
   await service.connect(); releaseRead(); await old;
   assert.equal(service.getSnapshot().status, 'connected'); assert.equal(service.getSnapshot().profileSync.status, 'synced');
   assert.equal(f.server.connected, true);
+});
+
+// Scenario fixtures are the firmware's own bytes (Software/tests/scenario_fixture.cpp).
+function scenarioFixture() {
+  const f = fixture();
+  const bytes = JSON.parse(readFileSync(new URL('../../../tests/scenario-protocol-fixture.json', import.meta.url), 'utf8'));
+  const hex = (h: string) => new DataView(Uint8Array.from(h.match(/../g)!.map((b: string) => parseInt(b, 16))).buffer);
+  const catalog = new Characteristic(); catalog.value = hex(bytes.catalog.hex);
+  const status = new Characteristic();
+  const idle = new DataView(new ArrayBuffer(20)); idle.setUint8(0, 1); idle.setUint8(1, 1); idle.setUint8(7, 32);
+  status.value = idle;
+  const command = new Characteristic();
+  let reply: (token: number, scenarioId: number) => DataView = (token, scenarioId) => {
+    const v = new DataView(new ArrayBuffer(20)); v.setUint8(0, 1); v.setUint8(1, 1); v.setUint8(2, 1);
+    v.setUint16(4, token, true); v.setUint8(6, scenarioId); v.setUint8(7, 32); v.setUint32(8, 30000, true);
+    return v;
+  };
+  command.writeValueWithResponse = async value => {
+    command.writes.push([...value]);
+    const view = new DataView(value.buffer, value.byteOffset, value.byteLength);
+    status.notify(reply(view.getUint16(2, true), view.getUint8(4)));
+  };
+  f.characteristics[SCENARIO_UUIDS.catalog] = catalog;
+  f.characteristics[SCENARIO_UUIDS.command] = command;
+  f.characteristics[SCENARIO_UUIDS.status] = status;
+  return { ...f, catalogCrc: bytes.catalog.crc as number, command, status, setReply: (r: typeof reply) => { reply = r; } };
+}
+
+test('scenario arm reads the catalog, sends START with the catalog CRC, then disconnects', async t => {
+  const f = scenarioFixture();
+  const service = createLiveConnectionService({ bluetooth: f.bluetooth, scenarioDisconnectDelayMs: 0, randomToken: () => 0x1234 });
+  t.after(() => service.dispose());
+  await service.connect();
+  const before = service.getSnapshot().scenario;
+  assert.equal(before.support, 'available');
+  assert.deepEqual(before.catalog?.entries.map(e => e.id), [1, 2, 3, 4]);
+  assert.equal(before.status?.state, 'idle');
+  await service.startScenario(2);
+  assert.deepEqual(f.command.writes[0], [1, 1, 0x34, 0x12, 2, 0, f.catalogCrc & 0xff, f.catalogCrc >> 8]);
+  assert.equal(service.getSnapshot().scenario.status?.state, 'armed');
+  assert.match(service.getSnapshot().scenario.message, /armed/);
+  await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(service.getSnapshot().status, 'disconnected');
+  const after = service.getSnapshot().scenario;
+  assert.equal(after.live, false);
+  assert.equal(after.status?.scenarioId, 2);  // Last-known status stays visible while the wearable is in the water.
+  assert.match(after.message, /running on the wearable/);
+});
+
+test('a refused scenario START shows the firmware reason and stays connected', async t => {
+  const f = scenarioFixture();
+  f.setReply(token => {
+    const v = new DataView(new ArrayBuffer(20)); v.setUint8(0, 1); v.setUint8(1, 1); v.setUint8(2, 7); v.setUint8(3, 1);
+    v.setUint16(4, token, true); v.setUint8(7, 32); return v;
+  });
+  const service = createLiveConnectionService({ bluetooth: f.bluetooth, scenarioDisconnectDelayMs: 0 });
+  t.after(() => service.dispose());
+  await service.connect();
+  await service.startScenario(1);
+  assert.equal(service.getSnapshot().scenario.status?.state, 'rejected');
+  assert.match(service.getSnapshot().scenario.message, /Battery/);
+  await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(service.getSnapshot().status, 'connected');
+});
+
+test('firmware without the scenario service still connects and reports scenarios unsupported', async t => {
+  const f = fixture();
+  const service = createLiveConnectionService({ bluetooth: f.bluetooth });
+  t.after(() => service.dispose());
+  await service.connect();
+  assert.equal(service.getSnapshot().status, 'connected');
+  assert.equal(service.getSnapshot().scenario.support, 'unsupported');
+  await service.startScenario(1);  // No-op: nothing to write to.
 });

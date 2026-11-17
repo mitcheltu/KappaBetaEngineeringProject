@@ -7,8 +7,9 @@ the Arduino loop. BLE callbacks only queue commands and update connection state.
 ## Records and capacity
 
 Records are 32 bytes, little-endian. A 4 MiB ring holds 131,072 records. At the
-upper scheduling budget of 50 IMU + 25 PPG + 5 depth + 5 system records/s, this
-is 1,542 seconds (25.7 minutes). Actual IMU polling is reduced by blocking depth
+upper scheduling budget of 50 IMU + 100 raw PPG + 5 depth + 5 system records/s
+in `testsAndDemo/drowningWearable`, this is 819 seconds (13.7 minutes).
+Actual IMU polling is reduced by blocking depth
 reads. Events such as surface zero add a small number of records.
 
 | Offset | Type | Meaning |
@@ -23,8 +24,8 @@ reads. Events such as surface zero add a small number of records.
 Kinds 1–4 use the same first 12 payload bytes as their existing live packet
 (live offsets 8–19). Depth payload offset 12 additionally stores the surface
 baseline in Pa as f32 (NaN if unset). Kind 5 contains baseline Pa as f32 and bit
-0 indicates success. Raw PPG is logged per FIFO sample, including unusable optical
-signals; estimates keep their own validity flags. Sampling failures are logged
+0 indicates success. Raw PPG is logged per FIFO sample (100 Hz, on-chip averaging
+off), including unusable optical signals; estimates keep their own validity flags. Sampling failures are logged
 with validity clear; absence/retry intervals are visible in timestamps/status.
 PPG FIFO timestamps are backdated, so timestamps across different record kinds
 need not increase with append sequence. The sequence is the transfer cursor.
@@ -38,6 +39,15 @@ actual ring capacity. The ring falls back from 4 to 2 to 1 MiB if needed while
 preserving at least 1 MiB of free PSRAM at allocation time. Both ML workspaces
 must allocate before the ring is enabled. Large allocations never fall back to internal SRAM.
 PSRAM history and these workspaces are lost on reset or power loss.
+
+`testsAndDemo/DrowningWearableDemo` uses this same v1 contract with different
+acquisition/allocation settings: nominal 20 IMU + 25 averaged PPG + 5 depth +
+5 system records/s, about 39.7 minutes in 4 MiB. Its MAX30102 hardware averages
+four 100 Hz conversions into each recorded 25 Hz FIFO pair. The demo reserves
+no ML workspaces, keeps 512 KiB PSRAM headroom, and falls back through 4/2/1 MiB.
+It emits only kinds 1–5, with the same explicit live-only fallback if allocation
+fails. Neither sampling rates nor retention duration are encoded in v1 identity;
+use the selected sketch's configuration and each record's timestamp.
 
 ## GATT characteristics
 
@@ -110,8 +120,10 @@ offset. Sampling and local actuator control continue during transfer/retries.
 The client also times out stalled links; storage/quota failures stop transfer
 without ACK or silently enabling live mode.
 
-After initial END, the client writes LIVE, waits for LIVE status, then enables
-the existing live telemetry subscriptions. It continues POLL transfers about
+After initial END, the client writes LIVE and waits for LIVE status. Updated
+apps then send and verify explicitly saved profile settings when supported by
+the non-demo firmware, using the separate [settings characteristic](SETTINGS_PROTOCOL.md).
+After that step, they enable the existing live telemetry subscriptions. They continue POLL transfers about
 every 250 ms from the durable cursor, including the tail recorded during the
 initial download. This preserves full-rate recorded samples alongside the 5 Hz
 display stream. Later END/LIVE exchanges keep live subscriptions active.

@@ -1,6 +1,7 @@
 import { Image } from 'react-native';
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react';
-import { createLiveConnectionService, type LiveStatus } from './services/liveConnection';
+import { createLiveConnectionService, type LiveStatus, type ScenarioSnapshot } from './services/liveConnection';
+import { RUNNING_STATES, scenarioStateLabels } from './services/scenarioProtocol';
 import { createIndexedDbHistoryStore } from './services/historyStore';
 import { HistoryView } from './components/HistoryView.web';
 import { useTheme } from './useTheme';
@@ -12,7 +13,7 @@ const oceanImage = require('../assets/ocean-background.png');
 const oceanStyle = { position: 'absolute' as const, inset: 0, width: '100%' as const, height: '100%' as const, opacity: 0.18, zIndex: -1 };
 
 type Tab = 'connect' | 'settings' | 'live';
-type Sensor = 'Depth' | 'Vitals' | 'Motion' | 'Device' | 'History';
+type Sensor = 'Depth' | 'Vitals' | 'Motion' | 'Device' | 'Scenario' | 'History';
 function readPreferences(): Preferences | null {
   try { return parsePreferences(localStorage.getItem(preferenceKey)); }
   catch { return null; }
@@ -23,17 +24,18 @@ const statusLabels: Record<LiveStatus, string> = {
 };
 const number = (n: number | null | undefined, decimals = 0) => n == null ? '—' : n.toFixed(decimals);
 const tabs: Tab[] = ['connect', 'settings', 'live'];
-const sensors: Sensor[] = ['Depth', 'Vitals', 'Motion', 'Device', 'History'];
+const sensors: Sensor[] = ['Depth', 'Vitals', 'Motion', 'Device', 'Scenario', 'History'];
 const helpContent = {
   heartRate: { title: 'Resting heart rate', paragraphs: ['Your usual heart rate at rest, in beats per minute. This is a baseline you enter, not a live sensor reading.', 'Saved settings transfer to compatible firmware on the next connection. They do not control device triggers yet, and the input range is not a validated device operating limit.'] },
   maxDepth: { title: 'Estimated maximum depth', paragraphs: ['The maximum depth you intend to set, in meters. The intended future device behavior is to trigger beyond this depth.', 'Saved settings transfer to compatible firmware on the next connection. Current firmware does not enforce this threshold, and the input range is not a validated device operating limit.'] },
   weightKg: { title: 'Weight', paragraphs: ['Your body weight in kilograms or pounds. Choose kg or lbs; switching units converts the displayed value. Adjust in 0.1-unit steps.', 'Saved settings transfer on the next connection. Weight is sent in kilograms, rounded to 0.1 kg. It does not control device triggers yet.'] },
   heightCm: { title: 'Height', paragraphs: ['Your height in centimeters. Adjust in 1 cm steps.', 'Saved settings transfer to compatible firmware on the next connection. It does not control device triggers yet.'] },
   settings: { title: 'Saving your settings', paragraphs: ['Save to browser keeps your heart-rate baseline, maximum depth, weight and height for your next visit. On the next connection, the app sends the latest saved settings after history finishes and reads them back to confirm receipt.', 'Unsaved edits are never sent. With no saved settings, transfer is skipped. Older firmware and the demo may not support profiles. Receipt does not mean the settings control device triggers or persist through a device restart.'] },
-  connection: { title: 'Connect your wearable', paragraphs: ['Use Chrome on Windows, macOS or Android over HTTPS or localhost. Select your KappaBeta wearable or KappaBetaDemo in the Bluetooth picker. iPhone Safari cannot connect through this Web Bluetooth interface.', 'Saved history downloads when available; KappaBetaDemo streams live readings without recording. Keep the sensor at the water surface when zeroing. This app does not run automatic drowning detection or remotely operate the pump.'] },
+  connection: { title: 'Connect your wearable', paragraphs: ['Use Chrome on Windows, macOS or Android over HTTPS or localhost. Select your KappaBeta wearable or KappaBetaDemo in the Bluetooth picker. iPhone Safari cannot connect through this Web Bluetooth interface.', 'Saved history downloads when available, then live readings begin. Devices without history memory show Live only. Keep the sensor at the water surface when zeroing. This app does not run automatic drowning detection or remotely operate the pump.'] },
   Depth: { title: 'About depth readings', paragraphs: ['Depth is calculated from water pressure relative to your surface baseline. In Connect, hold the sensor at the water surface and choose Zero depth at surface.', 'Pressure is shown in pascals and water temperature in degrees Celsius. A dash means no current valid reading is available.'] },
   Vitals: { title: 'About vital readings', paragraphs: ['Heart rate and oxygen estimates come from the wearable’s optical sensor. Both require a valid optical signal.', 'Red and infrared are raw optical readings. A dash means no current valid reading is available.'] },
   Motion: { title: 'About motion readings', paragraphs: ['X, Y and Z are the sensor’s three measurement axes. Acceleration is shown in g and includes gravity. Rotation is shown in degrees per second.', 'A dash means no current valid reading is available.'] },
+  Scenario: { title: 'About demo scenarios', paragraphs: ['A scenario replays a short scripted recording that is stored on the wearable (motion from the SwimWatch dataset; pulse and oxygen from public clinical datasets) through the wearable’s own models. It is a demonstration of the pipeline, not live detection and not evidence that the models work.', 'Arm a scenario, then the app disconnects and you have 30 seconds to put the wearable in the water. The wearable only starts vibration and then the pump if its motion model gate is open AND the pulse or oxygen model alerts. The app cannot start or stop the outputs: use the Cancel button or double-tap the wearable. Reconnect afterwards to see what happened.'] },
   Device: { title: 'About device status', paragraphs: ['Pump, vibration motor and blue LED values show commanded states, not measured water flow. The displayed countdown output matches your firmware. Use the physical Cancel button on the wearable to stop the pump.', 'Sensor errors and optical overflows are diagnostic counts reported by the wearable. A dash means no current valid reading is available.'] },
 };
 function nextTab(key: string, index: number, count: number) {
@@ -181,6 +183,7 @@ export default function DeviceApp() {
           <div className="vitals-view metric-grid" id="sensor-panel-Vitals" role="tabpanel" aria-labelledby="sensor-Vitals" tabIndex={0} hidden={sensor !== 'Vitals'}><Metric label="Heart rate" value={number(ppg?.heartRateBpm)} unit="bpm" /><Metric label="Oxygen estimate" value={number(ppg?.spo2Percent, 1)} unit="%" /><div className="raw-reading"><span>Raw optical · red / infrared</span><strong>{number(ppg?.red)} / {number(ppg?.infrared)}</strong>{t.ppg?.stale && <p>Reading stale.</p>}</div></div>
           <div className="motion-view" id="sensor-panel-Motion" role="tabpanel" aria-labelledby="sensor-Motion" tabIndex={0} hidden={sensor !== 'Motion'}><Axes title="Acceleration" values={imu?.accelerationG} unit="g" decimals={3} /><Axes title="Rotation" values={imu?.angularVelocityDps} unit="°/s" decimals={1} />{t.imu?.stale && <p>Reading stale.</p>}</div>
           <div className="device-view metric-grid" id="sensor-panel-Device" role="tabpanel" aria-labelledby="sensor-Device" tabIndex={0} hidden={sensor !== 'Device'}><Metric label="Battery" value={number(system?.batteryV, 2)} unit="V" /><div className="actuator-card"><span>Pump command</span><strong>{pumpStatus}</strong><span>{indicatorLabel} {system ? system.vibrationOn ? 'on' : 'off' : '—'}</span><p className="control-note">Use physical Cancel on the wearable to stop the pump.</p></div><dl className="diagnostic-readings"><div><dt>Sensor errors</dt><dd>{system?.sensorErrors ?? '—'}</dd></div><div><dt>Optical overflows</dt><dd>{system?.ppgOverflowCount ?? '—'}</dd></div></dl></div>
+          <div className="scenario-view" id="sensor-panel-Scenario" role="tabpanel" aria-labelledby="sensor-Scenario" tabIndex={0} hidden={sensor !== 'Scenario'}><ScenarioView scenario={snapshot.scenario} connected={connected} onArm={id => { void service.startScenario(id); }} onAbort={() => { void service.abortScenario(); }} onConnect={() => navigate('connect')} /></div>
           <div className="history-container" id="sensor-panel-History" role="tabpanel" aria-labelledby="sensor-History" tabIndex={0} hidden={sensor !== 'History'}><HistoryView store={store} progress={(frozen ?? snapshot).history} connected={linked} paused={frozen !== null} onConnect={() => navigate('connect')} /></div>
         </div>
         <div className="live-footer" hidden={sensor === 'History'}><button className="button outline" onClick={() => { if (sensor !== 'History') setHelp(sensor); }}>About {sensor.toLowerCase()}</button><button className="button outline" onClick={() => selectSensor('History')}>History & export</button></div>
@@ -208,3 +211,37 @@ function SettingCard({ name, unit, value, min, max, step, active, onHelp, onChan
 }
 function Metric({ label, value, unit }: { label: string; value: string; unit: string }) { return <article className="metric"><h2>{label}</h2><div><strong>{value}</strong><span>{unit}</span></div></article>; }
 function Axes({ title, values, unit, decimals }: { title: string; values?: [number, number, number] | null; unit: string; decimals: number }) { return <div className="axes"><h2>{title} <span>{unit}</span></h2><div>{['X', 'Y', 'Z'].map((axis, i) => <div key={axis}><span>{axis}</span><strong>{number(values?.[i], decimals)}</strong></div>)}</div></div>; }
+
+function ScenarioView({ scenario, connected, onArm, onAbort, onConnect }: { scenario: ScenarioSnapshot; connected: boolean; onArm: (id: number) => void; onAbort: () => void; onConnect: () => void }) {
+  const [clock, setClock] = useState(() => Date.now());
+  const status = scenario.status;
+  const running = status != null && RUNNING_STATES.includes(status.state);
+  useEffect(() => { if (!running) return; const id = setInterval(() => setClock(Date.now()), 1000); return () => clearInterval(id); }, [running]);
+  const entry = (id: number) => scenario.catalog?.entries.find(e => e.id === id);
+  // Disconnected: estimate from the last report. The arm buffer is 30 s, playback 110 s.
+  const elapsed = !scenario.live && scenario.statusAt != null ? clock - scenario.statusAt : 0;
+  const remaining = status && running ? Math.max(0, status.remainingMs - elapsed) : 0;
+  const score = (v: number | null, digits = 2) => v == null ? '—' : v.toFixed(digits);
+  return <div className="scenario-panel">
+    <p className="control-note">Scripted playback through the on-device models. Not live detection. The app can only arm or abort before the outputs start; use Cancel or a double tap on the wearable to stop them.</p>
+    {scenario.support === 'unsupported' && <p role="status">This firmware has no demo scenarios.</p>}
+    {!connected && !status && <button className="button outline" onClick={onConnect}>Connect to load scenarios</button>}
+    {status && <article className="actuator-card scenario-status" aria-live="polite">
+      <span>{scenario.live ? 'Wearable reports' : 'Last report (not connected)'}</span>
+      <strong>{scenarioStateLabels[status.state]}</strong>
+      <span>{status.scenarioId ? entry(status.scenarioId)?.name ?? `Scenario ${status.scenarioId}` : 'No scenario'}{running ? ` · ${Math.ceil(remaining / 1000)} s ${status.state === 'armed' ? 'until playback' : 'of playback left'}${scenario.live ? '' : ' (estimate)'}` : ''}</span>
+      <dl className="diagnostic-readings">
+        <div><dt>Motion gate (IMU)</dt><dd>{status.state === 'idle' || status.state === 'armed' ? '—' : status.imuGateOpen ? 'Open' : 'Closed'}</dd></div>
+        <div><dt>Pulse model score</dt><dd>{score(status.pulseScore)}{status.pulseAlert ? ' · alert' : ''}</dd></div>
+        <div><dt>Oxygen concern</dt><dd>{score(status.oxygenConcern)}{status.oxygenAlert ? ' · alert' : ''}</dd></div>
+        <div><dt>Outputs triggered</dt><dd>{status.triggerAccepted ? 'Yes' : 'No'}</dd></div>
+      </dl>
+      {connected && scenario.live && ['armed', 'playing', 'alerted'].includes(status.state) && <button className="button outline" disabled={scenario.pending !== null} onClick={onAbort}>Abort scenario</button>}
+    </article>}
+    {scenario.message && <p className="profile-sync-feedback" role="status">{scenario.message}</p>}
+    {scenario.catalog && <ul className="scenario-list">{scenario.catalog.entries.map(e => <li key={e.id}>
+      <div><strong>{e.name}</strong><span>{Math.round(e.durationS)} s scripted · scenario {e.id}</span></div>
+      <button className="button primary" disabled={!connected || !scenario.live || scenario.pending !== null || running} onClick={() => onArm(e.id)}>Arm</button>
+    </li>)}</ul>}
+  </div>;
+}

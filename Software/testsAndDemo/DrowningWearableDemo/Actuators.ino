@@ -8,6 +8,8 @@ void controlTask(void*) {
   uint32_t sosChangedMs = millis();
   bool previousCancel = false, previousSos = sosStable;
   bool previousBatteryOk = false;
+  uint32_t buzzUntilMs = 0;
+  bool buzzing = false;
   TickType_t wake = xTaskGetTickCount();
   for (;;) {
     uint32_t now = millis();
@@ -15,7 +17,7 @@ void controlTask(void*) {
     // Stop the outputs immediately on the raw Cancel level, before ADC work.
     if (cancel) {
       digitalWrite(Config::VIBRATION_GATE, LOW);
-      digitalWrite(Config::PUMP_GATE, LOW);
+      writePumpOutput(now, false);
     }
     const bool nextSos = digitalRead(Config::SOS_BUTTON) == LOW;
     if (nextSos != sosRaw) { sosRaw = nextSos; sosChangedMs = now; }
@@ -33,15 +35,46 @@ void controlTask(void*) {
     // Recheck after ADC reads; the physical button always has priority.
     cancel = cancel || digitalRead(Config::CANCEL_BUTTON) == LOW;
     const bool serialStop = stopRequested.exchange(false);
+    // A double tap (detectioncode.md) is handled exactly like a Cancel press.
+    const bool tapCancel = Config::DOUBLE_TAP_CANCEL && tapCancelRequested.exchange(false);
+    const bool stopAll = cancel || serialStop || tapCancel;
+    // Count each stop request once (and each new physical press) for the scenario task.
+    if ((cancel && !previousCancel) || serialStop || tapCancel) cancelEvents.fetch_add(1);
     now = millis();
     const uint16_t mv = batteryMv.load();
     const bool batteryOk = mv != UINT16_MAX && mv >= Config::ACTUATOR_MIN_BATTERY_MV;
+    const bool outputsEnabled = Config::ENABLE_ACTUATORS && pumpOutputReady.load();
     const auto oldStage = sequence.stage();
-    sequence.update(now, Config::ENABLE_ACTUATORS, cancel || serialStop, sosStable, batteryOk);
-    const bool motorOn = sequence.motorOn(now), pumpOn = sequence.pumpOn();
+    sequence.update(now, outputsEnabled, stopAll, sosStable, batteryOk);
+    // One-shot request from on-device scenario inference: accepted only for the run
+    // that is playing now, only while idle and only with the same interlocks as SOS.
+    if (const uint32_t run = scenarioTriggerRequest.exchange(0)) {
+      if (sequence.requestInference(now, outputsEnabled, stopAll, batteryOk, run, scenarioPlayingRun.load())) {
+        sequenceInfo.store(uint8_t(sequence.stage()) | uint8_t(uint8_t(sequence.trigger()) << 4));
+        scenarioTriggerAccepted.store(run);
+      } else {
+        scenarioTriggerRefused.store(run);
+      }
+    }
+    sequenceInfo.store(uint8_t(sequence.stage()) | uint8_t(uint8_t(sequence.trigger()) << 4));
+    if (tapCancel) {
+      // Confirmation buzz after the outputs have been stopped (never during a sequence).
+      buzzUntilMs = now + Config::TAP_BUZZ_MS;
+      buzzing = true;
+      logMessage(LogLevel::INFO, "TAP", "Double tap #%lu: Cancel", static_cast<unsigned long>(doubleTapCount.load()));
+    }
+    if (buzzing && (int32_t)(now - buzzUntilMs) >= 0) buzzing = false;
+    bool motorOn = sequence.motorOn(now) ||
+        (buzzing && sequence.stage() == DemoSequence::Stage::IDLE && outputsEnabled && batteryOk && !cancel);
     // Motor off is written before pump on at the phase transition.
     digitalWrite(Config::VIBRATION_GATE, motorOn ? HIGH : LOW);
-    digitalWrite(Config::PUMP_GATE, pumpOn ? HIGH : LOW);
+    const bool pumpOn = writePumpOutput(now, sequence.pumpOn());
+    if (!pumpOutputReady.load()) {
+      sequence.update(now, false, true, sosStable, batteryOk);
+      sequenceInfo.store(uint8_t(sequence.stage()) | uint8_t(uint8_t(sequence.trigger()) << 4));
+      motorOn = buzzing = false;
+      digitalWrite(Config::VIBRATION_GATE, LOW);
+    }
     const uint8_t flags = (pumpOn ? 4 : 0) | (cancel ? 8 : 0) |
         (sosStable ? 16 : 0) | (motorOn ? 32 : 0) |
         (sequence.stage() == DemoSequence::Stage::VIBRATING ? 64 : 0);
@@ -49,9 +82,11 @@ void controlTask(void*) {
     sosReady.store(sequence.canAcceptSos());
     // Logging is queued without waiting, after output changes.
     if (oldStage != sequence.stage())
-      logMessage(LogLevel::INFO, "CONTROL", "stage=%s motor=%d pump=%d remaining=%lu ms",
+      logMessage(LogLevel::INFO, "CONTROL", "stage=%s trigger=%s motor=%d pump=%d remaining=%lu ms",
           sequence.stage() == DemoSequence::Stage::VIBRATING ? "VIBRATING" :
           sequence.stage() == DemoSequence::Stage::PUMPING ? "PUMPING" : "IDLE",
+          sequence.trigger() == DemoSequence::Trigger::INFERENCE ? "inference" :
+          sequence.trigger() == DemoSequence::Trigger::SOS ? "SOS" : "-",
           motorOn, pumpOn, static_cast<unsigned long>(sequence.remainingPhaseMs(now)));
     if (batteryOk != previousBatteryOk)
       logMessage(batteryOk ? LogLevel::INFO : LogLevel::WARN, "BATTERY",

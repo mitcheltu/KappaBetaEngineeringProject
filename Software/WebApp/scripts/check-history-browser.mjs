@@ -172,10 +172,10 @@ try {
     const selectTab = async tab => {
       await page.getByRole('tab', { name: tab, exact: true }).click();
       assert.equal(await page.getByRole('tab', { name: tab, exact: true }).getAttribute('aria-selected'), 'true');
-      assert.equal(await page.getByRole('tabpanel').count(), 1, `${name}: inactive panels exposed`);
+      assert.equal(await page.locator('.tab-panel:not([hidden])').count(), 1, `${name}: inactive main panels exposed`);
       await badge.waitFor();
     };
-    await connect.getByRole('button', { name: 'Connect device ↗', exact: true }).click();
+    await connect.getByRole('button', { name: 'Connect wearable', exact: true }).click();
     try { await badge.waitFor(); }
     catch (error) { console.log('Connection failure:', await connect.innerText(), errors, await page.evaluate(() => globalThis.historyCommands)); throw error; }
     await connect.locator('.baseline-value strong').filter({ hasText: /^1\.25$/ }).waitFor();
@@ -183,11 +183,11 @@ try {
     await connect.locator('.baseline-value strong').filter({ hasText: /^0\.00$/ }).waitFor();
     assert.deepEqual(await page.evaluate(() => globalThis.zeroCommands), [[1]], 'surface-zero command was not exactly one byte');
     await selectTab('Settings');
-    await settings.getByText('Saved here. Not applied to the wearable.', { exact: true }).waitFor();
+    await settings.getByText('Saved here · sent on next connection', { exact: true }).waitFor();
     await selectTab('Live');
-    await livePanel.getByRole('button', { name: 'Vitals', exact: true }).click();
+    await livePanel.getByRole('tab', { name: 'Vitals', exact: true }).click();
     await livePanel.locator('.vitals-view .metric').filter({ has: page.getByRole('heading', { name: 'Heart rate', exact: true }) }).getByText('72', { exact: true }).waitFor();
-    await livePanel.getByRole('button', { name: 'History', exact: true }).click();
+    await livePanel.getByRole('tab', { name: 'History', exact: true }).click();
     const historyPanel = livePanel.getByRole('region', { name: 'Saved sensor history', exact: true });
     await historyPanel.locator('.history-view__stat strong').filter({ hasText: /^6$/ }).waitFor();
     await historyPanel.getByText('2 missing · gaps included in CSV', { exact: true }).waitFor();
@@ -195,13 +195,13 @@ try {
     assert.equal(await page.evaluate(() => historyCommands.filter(c => c.op === 1).length), 1, 'switching tabs restarted initial history');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${name} overflow`);
     await page.locator('.device-app').screenshot({ path: resolve(output, `${name}-history.png`) });
-    const download = page.waitForEvent('download'); await historyPanel.getByRole('button', { name: 'Export CSV ↗', exact: true }).click();
+    const download = page.waitForEvent('download'); await historyPanel.getByRole('button', { name: 'Export CSV', exact: true }).click();
     assert.match((await download).suggestedFilename(), /^kappa-beta-/);
     await selectTab('Connect');
     await connect.getByRole('button', { name: 'Disconnect', exact: true }).click();
     await page.getByRole('button', { name: 'Device status: Not connected. Open connection tab', exact: true }).waitFor();
     await connect.locator('.baseline-value strong').filter({ hasText: /^—$/ }).waitFor();
-    await connect.getByRole('button', { name: 'Connect device ↗', exact: true }).click();
+    await connect.getByRole('button', { name: 'Connect wearable', exact: true }).click();
     await badge.waitFor();
     assert.equal(await page.evaluate(() => historyCommands.filter(c => c.op === 1).at(-1).cursor), 8, 'reconnect did not resume checkpoint');
     assert.deepEqual(await page.evaluate(() => globalThis.fakeConnections), { requests: 2, connects: 2, disconnects: 1 }, 'unexpected reconnect lifecycle');

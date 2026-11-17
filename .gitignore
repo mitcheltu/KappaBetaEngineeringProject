@@ -31,6 +31,7 @@ yarn-error.log*
 *.md
 !README.md
 !/Software/HISTORY_PROTOCOL.md
+!/Software/SETTINGS_PROTOCOL.md
 
 # Rev F local toolchain downloads, binaries, and schematic renderings
 /tmp/revf-build/

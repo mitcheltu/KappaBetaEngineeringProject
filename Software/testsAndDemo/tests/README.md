@@ -1,5 +1,39 @@
 # Firmware host tests
 
+## Rev J demo live history and pump startup
+
+These commands target the actual demo headers. The generated fixture tests the
+firmware's shared live/history encoders against the web app's decoders, including
+invalid readings, estimated PPG timestamps and default-MTU fragments. The pump
+test covers Rev J GPIOs, linear duty, stop/restart, rollover and sequence interlocks.
+
+```powershell
+$env:PATH = 'C:/msys64/ucrt64/bin;' + $env:PATH
+New-Item -ItemType Directory -Force tmp/demo-live-history | Out-Null
+g++ -std=c++17 -Wall -Wextra -Werror -I Software/testsAndDemo/DrowningWearableDemo Software/tests/demo_sensor_history_test.cpp -o tmp/demo-live-history/sensor-history.exe
+if ($LASTEXITCODE -ne 0) { throw 'Sensor history compile failed' }
+./tmp/demo-live-history/sensor-history.exe
+if ($LASTEXITCODE -ne 0) { throw 'Sensor history test failed' }
+$fixture = ./tmp/demo-live-history/sensor-history.exe --fixture
+if ($LASTEXITCODE -ne 0) { throw 'Fixture generation failed' }
+$fixture | Set-Content Software/testsAndDemo/tests/demo-sensor-history-fixture.json -Encoding utf8
+g++ -std=c++17 -Wall -Wextra -Werror -I Software/testsAndDemo/DrowningWearableDemo Software/tests/pump_ramp_test.cpp -o tmp/demo-live-history/pump-ramp.exe
+if ($LASTEXITCODE -ne 0) { throw 'Ramp compile failed' }
+./tmp/demo-live-history/pump-ramp.exe
+if ($LASTEXITCODE -ne 0) { throw 'Ramp test failed' }
+g++ -std=c++17 -Wall -Wextra -Werror -I Software/testsAndDemo/DrowningWearableDemo Software/testsAndDemo/tests/history_test.cpp -o tmp/demo-live-history/history.exe
+if ($LASTEXITCODE -ne 0) { throw 'History compile failed' }
+./tmp/demo-live-history/history.exe
+if ($LASTEXITCODE -ne 0) { throw 'History test failed' }
+```
+
+Then run `npm test`, `npm run typecheck`, and `npm run build:pages` from
+`Software/WebApp`. Compile the sketch with its own `build.ps1`, as described in
+the [demo README](../DrowningWearableDemo/README.md). Tests do not validate actual
+PWM electrical behavior, sensor accuracy, PSRAM allocation or BLE throughput.
+
+## Earlier wearable host tests
+
 Run these commands from the repository root with a C++17 compiler on `PATH`.
 The examples use PowerShell and `g++`; change `$bmiLibraryDirectory` to the root
 of your installed **SparkFun BMI270 Arduino Library 1.0.3**. Its `src` folder
@@ -9,18 +43,28 @@ must contain `bmi270_api/bmi270.h`.
 $bmiLibraryDirectory = './tmp/revf-build/libraries/SparkFun_BMI270_Arduino_Library-1.0.3'
 New-Item -ItemType Directory -Force -Path './tmp/revf-tests' | Out-Null
 
-g++ -std=c++17 -Wall -Wextra -Werror -I Software/DrowningWearable Software/tests/bench_sequence_test.cpp -o tmp/revf-tests/bench-sequence.exe
+g++ -std=c++17 -Wall -Wextra -Werror -I Software/testsAndDemo/drowningWearable Software/testsAndDemo/tests/bench_sequence_test.cpp -o tmp/revf-tests/bench-sequence.exe
 if ($LASTEXITCODE -ne 0) { throw 'Bench sequence test compilation failed' }
 ./tmp/revf-tests/bench-sequence.exe
 if ($LASTEXITCODE -ne 0) { throw 'Bench sequence tests failed' }
 
-g++ -std=c++17 -Wall -Wextra -Werror -I Software/DrowningWearable Software/tests/history_test.cpp -o tmp/revf-tests/history.exe
+g++ -std=c++17 -Wall -Wextra -Werror -I Software/testsAndDemo/drowningWearable Software/tests/diagnostics_test.cpp -o tmp/revf-tests/diagnostics.exe
+if ($LASTEXITCODE -ne 0) { throw 'Diagnostics test compilation failed' }
+./tmp/revf-tests/diagnostics.exe
+if ($LASTEXITCODE -ne 0) { throw 'Diagnostics tests failed' }
+
+g++ -std=c++17 -Wall -Wextra -Werror -I Software/testsAndDemo/drowningWearable Software/testsAndDemo/tests/history_test.cpp -o tmp/revf-tests/history.exe
 if ($LASTEXITCODE -ne 0) { throw 'History test compilation failed' }
 ./tmp/revf-tests/history.exe
 if ($LASTEXITCODE -ne 0) { throw 'History tests failed' }
 
+g++ -std=c++17 -Wall -Wextra -Werror -I Software/testsAndDemo/drowningWearable Software/tests/ppg_decimator_test.cpp -o tmp/revf-tests/ppg-decimator.exe
+if ($LASTEXITCODE -ne 0) { throw 'PPG decimator test compilation failed' }
+./tmp/revf-tests/ppg-decimator.exe
+if ($LASTEXITCODE -ne 0) { throw 'PPG decimator tests failed' }
+
 $bmiIncludeDirectory = Join-Path $bmiLibraryDirectory 'src'
-g++ -std=c++17 -Wall -Wextra -I Software/tests/bmi/stubs -I Software/DrowningWearable -I $bmiIncludeDirectory Software/tests/checked_bmi270_test.cpp -o tmp/revf-tests/checked-bmi270.exe
+g++ -std=c++17 -Wall -Wextra -I Software/testsAndDemo/tests/bmi/stubs -I Software/testsAndDemo/drowningWearable -I $bmiIncludeDirectory Software/testsAndDemo/tests/checked_bmi270_test.cpp -o tmp/revf-tests/checked-bmi270.exe
 if ($LASTEXITCODE -ne 0) { throw 'BMI270 test compilation failed' }
 ./tmp/revf-tests/checked-bmi270.exe
 if ($LASTEXITCODE -ne 0) { throw 'BMI270 tests failed' }
@@ -34,6 +78,31 @@ $env:PATH = 'C:/msys64/ucrt64/bin;' + $env:PATH
 ```
 
 Do not compile these assertion-based tests with `-DNDEBUG`.
+
+The saved-profile protocol test runs against either non-demo sketch's
+self-contained header. It checks the shared 12-byte wire vector, range
+boundaries, malformed writes and preservation of the last accepted profile:
+
+```powershell
+g++ -std=c++17 -Wall -Wextra -Werror -I Software/testsAndDemo/drowningWearable Software/tests/profile_settings_test.cpp -o tmp/revf-tests/profile-settings.exe
+if ($LASTEXITCODE -ne 0) { throw 'Profile settings test compilation failed' }
+./tmp/revf-tests/profile-settings.exe
+if ($LASTEXITCODE -ne 0) { throw 'Profile settings tests failed' }
+
+g++ -std=c++17 -Wall -Wextra -Werror -I Software/microcontrollerFinal Software/tests/profile_settings_test.cpp -o tmp/revf-tests/profile-settings-final.exe
+if ($LASTEXITCODE -ne 0) { throw 'Final profile settings test compilation failed' }
+./tmp/revf-tests/profile-settings-final.exe
+if ($LASTEXITCODE -ne 0) { throw 'Final profile settings tests failed' }
+```
+
+See [the settings protocol](../../SETTINGS_PROTOCOL.md) for connection ordering and
+readback confirmation. Host tests do not establish physical BLE behavior.
+
+The PPG decimator test checks the 100 Hz → 25 Hz software averaging that feeds
+the Maxim HR/SpO2 routine: integer means of non-overlapping groups of four,
+reset on a gated sample or FIFO discontinuity, no accumulator overflow at full
+18-bit scale, and exactly 25 outputs per 100 raw samples. It does not test the
+MAX30102 register configuration or FIFO timing on hardware.
 
 The history tests verify the wire layouts and IEEE CRC32, externally allocated
 ring storage, chronological overwrite, capacity and sequence exhaustion,
@@ -50,19 +119,27 @@ integer range, an IEEE CRC32, an ACK command and default-MTU fragments. Regenera
 it after an intentional protocol change (do not use `-DNDEBUG`):
 
 ```powershell
-g++ -std=c++17 -Wall -Wextra -Werror -I Software/DrowningWearable Software/tests/history_fixture.cpp -o tmp/revf-tests/history-fixture.exe
+g++ -std=c++17 -Wall -Wextra -Werror -I Software/testsAndDemo/drowningWearable Software/testsAndDemo/tests/history_fixture.cpp -o tmp/revf-tests/history-fixture.exe
 if ($LASTEXITCODE -ne 0) { throw 'History fixture compilation failed' }
 $fixtureJson = ./tmp/revf-tests/history-fixture.exe
 if ($LASTEXITCODE -ne 0) { throw 'History fixture generation failed' }
-$fixtureJson | Set-Content -LiteralPath Software/tests/history-protocol-fixture.json -Encoding utf8
+$fixtureJson | Set-Content -LiteralPath Software/testsAndDemo/tests/history-protocol-fixture.json -Encoding utf8
 ```
 
-The sequence tests cover the ten-second vibration countdown, pump run until
+The sequence tests cover the ten-second countdown (currently shown by the blue
+LED; the helper retains the legacy `vibrationOn()` name), pump run until
 Cancel, cancellation before/during/exactly at pump start, simultaneous buttons,
 optional timed running, and `millis()` wraparound. They also check that a held
 SOS at boot cannot trigger the sequence, active presses cannot restart or extend
 it, and stop/cancel, disabled controls, or an invalid/low battery take priority.
 Recovery from an interlock requires a fresh release and press of SOS.
+
+The diagnostics tests check the reported battery conditions at 2499/2500,
+3399/3400 and 4350/4351 mV, plus the `NOT_SAMPLED` sentinel, against the
+actuator battery policy. They verify that low, invalid-high and unknown battery
+stop either active phase and that `canAcceptSos()` agrees with the sequence's
+armed state at boot, during operation, after an interlock, and after release and
+repress. These host tests do not validate ADC calibration or Serial timing.
 
 The BMI270 tests exercise the actual checked transport adapter with injected
 I2C failures and configuration readback faults. Bosch API calls are test doubles;
@@ -77,4 +154,4 @@ and rejects nonfinite/out-of-range results, but the upstream `void read()` does
 not expose individual transfer failures. Bench-check depth/temperature against
 a reference and check disconnect/reconnect behavior; software checks alone
 cannot establish measurement accuracy. Installation and build settings are in
-the [electronics documentation](../../Electrical/README.md).
+the [electronics documentation](../../../Electrical/README.md).

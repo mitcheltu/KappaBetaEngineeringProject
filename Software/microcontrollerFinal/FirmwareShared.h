@@ -22,6 +22,7 @@
 #include "RiskProcessing.h"
 #include "SensorBuffers.h"
 #include "HistoryProtocol.h"
+#include "ProfileSettings.h"
 
 #if !defined(CONFIG_IDF_TARGET_ESP32S3)
 #error "Select ESP32S3 Dev Module / ESP32-S3-DevKitC-1."
@@ -86,6 +87,8 @@ void serviceDepth();
 void serviceDepthZero();
 void controlTask(void*);
 void initializeBle();
+void createProfileSettingsCharacteristic(NimBLEService* service);
+ProfileSettings::Values readProfileSettings();
 void sendPacket(NimBLECharacteristic* characteristic, const void* packet,
                 size_t bytes = 20);
 void publishTelemetry(uint32_t now);

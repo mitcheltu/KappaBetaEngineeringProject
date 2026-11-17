@@ -3,6 +3,8 @@
 namespace {
 int ppgSignalCandidate = -1, ppgSignalReported = -1;
 uint32_t ppgSignalChangedMs = 0;
+// 100 Hz raw -> 25 Hz Maxim input; raw samples are still recorded individually.
+PpgDecimator<Config::PPG_ALGORITHM_DECIMATION> algorithmDecimator;
 }
 
 void logPpgSignalQuality(uint32_t red, uint32_t ir) {
@@ -29,6 +31,7 @@ void resetPpgWindow() {
     logMessage(LogLevel::DEBUG, "PPG", "Discarding optical window (%u samples); raw/HR/SpO2 validity cleared", unsigned(windowCount));
   ppgSignalCandidate = ppgSignalReported = -1;
   windowCount = 0;
+  algorithmDecimator.reset();
   rawPpgValid = hrValid = spo2Valid = false;
   recordPpgGap();
 }
@@ -48,11 +51,14 @@ void acceptPpgSample(uint32_t red, uint32_t ir, uint64_t sampleTimeUs) {
       logMessage(LogLevel::DEBUG, "PPG", "HR/SpO2 invalidated by optical signal gate (red=%lu IR=%lu)",
                  static_cast<unsigned long>(red), static_cast<unsigned long>(ir));
     windowCount = 0; hrValid = spo2Valid = false;
+    algorithmDecimator.reset(); // A gated sample breaks the averaging group too.
     recordPpgSample(sampleTimeUs);
     return;
   }
-  irWindow[windowCount] = ir;
-  redWindow[windowCount++] = red;
+  uint32_t averagedRed = 0, averagedIr = 0;
+  if (!algorithmDecimator.add(red, ir, averagedRed, averagedIr)) { recordPpgSample(sampleTimeUs); return; }
+  irWindow[windowCount] = averagedIr;
+  redWindow[windowCount++] = averagedRed;
   if (windowCount < 100) { recordPpgSample(sampleTimeUs); return; }
   int8_t validHr = 0, validSpo2 = 0;
   const bool previousHrValid = hrValid, previousSpo2Valid = spo2Valid;
@@ -65,7 +71,7 @@ void acceptPpgSample(uint32_t red, uint32_t ir, uint64_t sampleTimeUs) {
                hrValid ? "valid" : "invalid", static_cast<long>(heartRate),
                spo2Valid ? "valid" : "invalid", static_cast<long>(oxygenSaturation));
   estimateMs = millis();
-  // Four seconds at 25 FIFO samples/s, recomputed each second (Example8).
+  // Four seconds of 25 Hz averaged samples, recomputed each second (Example8).
   memmove(irWindow, irWindow + 25, 75 * sizeof(uint32_t));
   memmove(redWindow, redWindow + 25, 75 * sizeof(uint32_t));
   windowCount = 75;
@@ -80,7 +86,7 @@ void servicePpg() {
     logMessage(LogLevel::WARN, "PPG", "MAX30102 FIFO pointer read failed; readings invalid until reinitialization");
     ++sensorErrors; resetPpgWindow(); ppgReady = false; return;
   }
-  if ((pointers[1] & 0x1f) != 0 || now - lastFifoServiceMs >= 1000) {
+  if ((pointers[1] & 0x1f) != 0 || now - lastFifoServiceMs >= Config::PPG_FIFO_SPAN_MS) {
     logMessage(LogLevel::WARN, "PPG", "FIFO discontinuity: overflow=%u serviceGap=%lums; discarding window",
                unsigned(pointers[1] & 0x1f), static_cast<unsigned long>(now - lastFifoServiceMs));
     // A discontinuous window must not produce an HR/SpO2 estimate.
@@ -109,7 +115,7 @@ void servicePpg() {
     }
     const uint32_t red = ((uint32_t(sample[0]) << 16) | (uint32_t(sample[1]) << 8) | sample[2]) & 0x3ffff;
     const uint32_t ir = ((uint32_t(sample[3]) << 16) | (uint32_t(sample[4]) << 8) | sample[5]) & 0x3ffff;
-    const uint64_t ageUs = uint64_t(pending - 1 - i) * 40000;
+    const uint64_t ageUs = uint64_t(pending - 1 - i) * Config::PPG_SAMPLE_PERIOD_US;
     acceptPpgSample(red, ir, batchTimeUs > ageUs ? batchTimeUs - ageUs : 0);
   }
 }
@@ -129,8 +135,9 @@ void initializePpg() {
     failureReported = true;
     return;
   }
-  // 100 samples/s / 4-sample averaging = 25 Hz expected by Maxim algorithm.
-  ppg.setup(60, 4, 2, 100, 411, 4096); // red + IR, 18-bit, no green LED
+  // 100 samples/s with on-chip averaging off: every raw sample reaches the FIFO.
+  // Software averaging (PpgDecimator) restores the 25 Hz Maxim input.
+  ppg.setup(60, 1, 2, Config::PPG_SAMPLE_HZ, 411, 4096); // red + IR, 18-bit, no green LED
   ppg.disableFIFORollover();
   // Configuration writes don't report errors: verify essential registers.
   uint8_t mode = 0, spo2 = 0, fifo = 0, led[2] = {};
@@ -138,7 +145,7 @@ void initializePpg() {
              readRegisters(Config::PPG_ADDRESS, 0x0a, &spo2, 1) &&
              readRegisters(Config::PPG_ADDRESS, 0x08, &fifo, 1) &&
              readRegisters(Config::PPG_ADDRESS, 0x0c, led, 2) &&
-             mode == 0x03 && (spo2 & 0x7f) == 0x27 && (fifo & 0xf0) == 0x40 &&
+             mode == 0x03 && (spo2 & 0x7f) == 0x27 && (fifo & 0xf0) == 0x00 &&
              led[0] == 60 && led[1] == 60 && clearPpgFifo();
   lastFifoServiceMs = millis();
   ppgMs = lastFifoServiceMs; // Start the no-new-samples timeout after setup.
@@ -149,7 +156,7 @@ void initializePpg() {
                unsigned(mode), unsigned(spo2), unsigned(fifo), unsigned(led[0]), unsigned(led[1]));
     failureReported = true;
   } else {
-    logMessage(LogLevel::INFO, "PPG", "MAX30102 ready: red+IR, 25 FIFO samples/s; HR/SpO2 need 100 accepted samples");
+    logMessage(LogLevel::INFO, "PPG", "MAX30102 ready: red+IR, 100 raw samples/s (averaged to 25 Hz for HR/SpO2; first estimate after 4 s)");
     failureReported = false;
   }
 }

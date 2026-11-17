@@ -1,8 +1,16 @@
 # DrowningWearable Arduino sketch
 
-Open **DrowningWearable.ino** in Arduino IDE. This folder contains all sketch
+Open **drowningWearable.ino** in Arduino IDE. This folder contains all sketch
 tabs and required headers, including `Logging.ino` and `Diagnostics.h`. Keep the folder named
-`DrowningWearable` and keep these files together when copying the sketch.
+`drowningWearable` and keep these files together when copying the sketch.
+
+Recovery check, 2026-11-16: restored the missing `ProfileSettings.h`,
+`ProfileSettings.ino`, and `PpgDecimator.h` required by the interrupted changes.
+The build helper now targets this relocated folder, and the primary filename
+matches its case. The ESP32-S3 compile passed with the locally installed **3.3.12**
+core (637,599 bytes flash; 50,488 bytes globals); the documented 3.3.7 core was
+not checked in this recovery run. Profile-packet and decimator host tests passed.
+This was a compile-only check, with no upload or model/actuator integration.
 
 ## Setup and upload
 
@@ -33,11 +41,29 @@ tabs and required headers, including `Logging.ino` and `Diagnostics.h`. Keep the
 are installed through Library Manager. All `.ino` tabs compile together, so
 upload the primary sketch once rather than uploading individual tabs.
 
-See the [wiring and firmware guide](../../Electrical/README.md) for pin
+See the [wiring and firmware guide](../../../Electrical/README.md) for pin
 assignments, power setup, and manual pump-test behavior. The
-[history protocol](../HISTORY_PROTOCOL.md) describes the BLE history service.
-The [build helper](../build-firmware.ps1) compiles this same folder from the
+[history protocol](../../HISTORY_PROTOCOL.md) describes the BLE history service.
+The [build helper](../../build-firmware.ps1) compiles this same folder from the
 command line.
+
+## Settings received from the apps
+
+After the initial sensor-history import completes, the web and iOS apps send
+their last saved resting heart rate, maximum depth, weight and height through
+the optional settings characteristic. They skip this transfer when no settings
+have been saved. An app reads the accepted values back before reporting success.
+See the [settings protocol](../../SETTINGS_PROTOCOL.md) for the packet and units.
+
+`ProfileSettings.ino` validates the complete profile and stores a coherent copy
+in RAM. Invalid writes leave the previously accepted profile intact. Values
+survive a Bluetooth disconnect but clear on MCU reset; the next app connection
+can send them again. `readProfileSettings()` returns a thread-safe snapshot with
+`configured`, `restingHeartRateBpm`, `maximumDepthMm`, `weightDeciKg` and
+`heightCm`; check `configured` before use. The convenience methods
+`maximumDepthM()` and `weightKg()` convert units. These received values do not
+currently alter sensor processing or activate the pump. The demo sketch does
+not expose this characteristic.
 
 ## Temporary blue LED countdown
 

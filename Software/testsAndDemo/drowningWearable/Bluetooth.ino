@@ -43,6 +43,7 @@ void initializeBle() {
   systemCharacteristic = service->createCharacteristic(Config::SYSTEM_UUID, properties, 20);
   NimBLECharacteristic* zero = service->createCharacteristic(Config::ZERO_DEPTH_UUID, NIMBLE_PROPERTY::WRITE, 1);
   zero->setCallbacks(&zeroCallbacks);
+  createProfileSettingsCharacteristic(service);
   createHistoryCharacteristics(service);
   publishTelemetry(millis());
   bleServer->start();

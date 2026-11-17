@@ -19,6 +19,8 @@
 #include "BenchSequence.h"
 #include "CheckedBMI270.h"
 #include "HistoryProtocol.h"
+#include "ProfileSettings.h"
+#include "PpgDecimator.h"
 
 #if !defined(CONFIG_IDF_TARGET_ESP32S3)
 #error "Select ESP32S3 Dev Module / ESP32-S3-DevKitC-1."
@@ -66,6 +68,8 @@ void sampleDepth();
 void serviceDepthZero();
 void controlTask(void*);
 void initializeBle();
+void createProfileSettingsCharacteristic(NimBLEService* service);
+ProfileSettings::Values readProfileSettings();
 void sendPacket(NimBLECharacteristic* characteristic, const void* packet);
 void publishTelemetry(uint32_t now);
 void processCommand(const char* command);

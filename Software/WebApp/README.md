@@ -151,6 +151,13 @@ The older [instrument audit](audit/INSTRUMENT.md), [ocean redesign audit](audit/
 
 ## Implementation map
 
+The Rev J [DrowningWearableDemo](../testsAndDemo/DrowningWearableDemo/README.md)
+supports both live telemetry and recorded sensor history using the existing
+protocol. With OPI PSRAM enabled it imports preconnection readings, then polls
+history while live cards update. Older live-only demo builds and boards without
+history memory still connect in **Live only** mode. Scripted scenarios are not
+part of this integration; saved profile settings remain unsupported by the demo.
+
 | Location | Purpose |
 | --- | --- |
 | `App.web.tsx`, `src/DeviceApp.tsx` | Web entry, Connect/Settings/Live tabs, shared real connection, baseline request, local settings, live sensor views and help dialogs |
