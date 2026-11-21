@@ -188,7 +188,7 @@ For local execution, `tools/run_notebook.py` extracts code without executing it:
 
 ```powershell
 $env:PYTHONIOENCODING='utf-8'
-python Software/GoogleColab/tools/run_notebook.py Software/GoogleColab/04_pulse_loss_detector.ipynb tmp/run04.py
+python Software/models/ppg_esp32_deployment/tools/run_notebook.py Software/models/ppg_esp32_deployment/04_pulse_loss_detector.ipynb tmp/run04.py
 $env:PULSE_DATA_ROOT='tmp/data-v4'
 $env:PULSE_CACHE='tmp/data-v4/c2015'
 $env:WILDPPG_CACHE='tmp/kaggle-real-full-b'
@@ -215,8 +215,8 @@ truth; the old patch builders under `tmp/notebook-build/` are scratch files.
 Useful checks:
 
 ```powershell
-python Software/GoogleColab/tools/test_notebook_algorithms.py --pulse Software/GoogleColab/04_pulse_loss_detector.ipynb --oxygen-export tmp/kaggle-qa/v6/out03_v5_final/replay_reference.py
-python Software/GoogleColab/tools/verify_pulse_cache.py --notebook Software/GoogleColab/04_pulse_loss_detector.ipynb --cache tmp/data-v4/c2015 --output tmp/pulse-cache-check.json
+python Software/models/ppg_esp32_deployment/tools/test_notebook_algorithms.py --pulse Software/models/ppg_esp32_deployment/04_pulse_loss_detector.ipynb --oxygen-export tmp/kaggle-qa/v6/out03_v5_final/replay_reference.py
+python Software/models/ppg_esp32_deployment/tools/verify_pulse_cache.py --notebook Software/models/ppg_esp32_deployment/04_pulse_loss_detector.ipynb --cache tmp/data-v4/c2015 --output tmp/pulse-cache-check.json
 ./Software/ppgSoftware/test.ps1
 ```
 
@@ -229,9 +229,101 @@ running. The completed run here used the unchanged audited implementation.
 The full local run took about 113 minutes, including 51 minutes to score the
 complete healthy comparison recordings.
 
+## Version history
+
+The notebook introductions describe only the current method. What changed
+between versions is recorded here.
+
+**2026-11-20 readability pass (all three notebooks).** This pass rewrote the
+introductions, added section headers and split long cells at statement
+boundaries. It also applied `black` formatting at 100 columns, reflowed
+comments and moved this history here. No code was added, removed or
+reordered. Each notebook's concatenated code has the same Python AST as
+before, except for five renamed globals in 04: `ART` → `ARTEFACT_BANK`,
+`AUG` → `AUGMENTED_ICU`, `cand` → `candidates`, `pol` → `polarity_rows`
+and `piv` → `config_rates`. Results, run-plan hashes and the checkpoint key
+`AUDITED_CODE_SHA256` are therefore unchanged. The `notebook_sha256` values
+recorded in the `ppgSoftware` manifests refer to the files before this pass.
+
+### 04 pulse-loss detector
+
+**v5 (2026-11-16).** The four v4 ICU baselines keep their hyperparameters and
+seeds. Corrected ECG counts change WildPPG reference strata, not ICU labels.
+None of these changes needs invented clinical outcomes:
+
+| Change | Why | Label source |
+|---|---|---|
+| WildPPG split by person: the 8 participants scored in v4 are used only for training and the gate; the other 8 only for the false-alarm comparison | All 16 people appeared in notebook 02; this is an inspected development split | — |
+| `*_h` models: healthy chest windows with agreeing automatic beat counts added as negatives | ICU "false alarms" are mostly artefact, not normal chest rhythm | Protocol fact: healthy volunteers |
+| Pulse-visibility gate (PPG only), applied to the window *before* the one being scored | The old ECG counter overcounted beats; its visibility conclusions are withdrawn. This gate tests reference beat-count agreement, not clinical pulse visibility. Using the preceding window avoids directly rejecting the current window for pulse loss, but can still suppress true alarms; gated ICU sensitivity is reported | Reference-instrument agreement: PPG beats ÷ simultaneous ECG beats within 0.8–1.2 (as notebook 02 uses ECG HR) |
+| `cnn_v5`: about 5 s receptive field, eight 2-s time bins, early stopping, signal corruptions with original event labels, 3-seed ensemble | v4's CNN saw about 1 s at a time, averaged away *where* things happen, and was still underfitting at 40 epochs | Unchanged expert labels |
+| 2-of-3 persistence and prior-window gate evaluated on extra ICU windows (ending 4 s and 2 s before the alarm, and 268–284 s) | Compares an explicit research timing policy; firmware scheduling and runtime are not validated here | Unchanged expert labels |
+| Inherited firmware selection rule recorded and hashed before this full run (`v5_run_plan.json`) | Documents the selection procedure; hashing does not remove prior inspection or selection bias | — |
+
+**Audit correction (2026-11-16).** All 16 WildPPG people appear in saved
+notebook 02 results. These folds are person-disjoint within this run, but
+are not untouched validation. The local run-plan hash is an audit record, not
+a public preregistration. The automatic ECG/PPG beat-count gate is an
+engineering proxy; equal counts do not prove matched beats or a visible
+pulse. The inherited selection rule is retained as a provisional ranking only.
+
+**v4 (2026-11-09).** The four ICU baselines (`rule_definitions`, `logistic`,
+`boosted_trees`, `cnn_1d`) and the healthy-chest false-alarm test. The exact
+snapshot is `archive/04_pulse_loss_detector_v4.ipynb`; its ECG counter
+overcounts beats (see [ECG correction](#ecg-correction)).
+
+**v1–v3.** A tilt-table syncope approach, archived as
+`archive/04_hr_syncope_risk_v3_tilt.ipynb`, because its public release has no
+outcome labels.
+
+### 03 oxygen concern
+
+**v5 (2026-11-16): audit and fitted Kalman comparison.** v5 adds a causal
+level/slope Kalman filter. Q and R minimize one-step measurement likelihood
+on 20 normal-breathing participants; the other 20 controls are excluded from
+fitting. No outcomes are inferred from a slope or a saturation crossing. All
+these datasets were previously inspected, and the new variants are research
+comparisons, not validated alarms. The raw breath-hold minimum is **83%, not
+84%**. Subtracting an assumed 3-point margin gives 80%. That margin is not a
+measured MAX30102 error bound, and the full anchor at 60% remains an
+engineering assumption. Projection uses only a specified processing-window
+centre age; unknown physiological or oximeter delays are never estimated
+away. The old `concern_trend` 15-second projection remains a labelled v4
+comparator only.
+
+**v4 (2026-11-09): real deep desaturations.** Evaluation 5 replays the rule on
+the open UW/UCSD controlled-hypoxemia data. For the first time, real data
+exercise the deep anchor set. The timing reference is the median of the other
+three oximeters: a reference-instrument consensus, not arterial blood, and not
+the stream the rule reads. An optional section prepares OpenOximetry
+(arterial blood-gas reference), which runs only with a PhysioNet login.
+
+**v3 (2026-11-09).**
+- The person-relative branch now shifts the anchor set by the person's
+  resting SpO₂. v2 used a fixed 4 → 15-point drop, which made the "deep"
+  variants alarm at about 88%.
+- The synthetic test passes trajectories through a declared sensor-delay and
+  4-s device-averaging model and measures timing against the *arterial*
+  crossing.
+- On the device the alert stays latched until acknowledged. The evaluations
+  count each alert start, assuming an acknowledgement once the reading
+  recovers.
+- Alert rates have exact Poisson 95% confidence intervals.
+- A burst-artefact stress test uses the device's own SpO₂ at a red/IR ratio
+  of 1 (80.1%).
+
+**v1.** The altitude/lab rule, tuned against events defined from the same
+SpO₂ stream (circular). It is archived as
+`archive/03_oxygen_concern_v1_altitude_lab.ipynb`.
+
+### 02 HR quality gate
+
+**2026-11-16 ECG audit.** No algorithm or model changed. The audit results are
+in [ECG correction](#ecg-correction).
+
 ## Firmware boundary
 
-The standalone [PPG sketch](../ppgSoftware/README.md) still contains v4
+The standalone [PPG sketch](../../ppgSoftware/README.md) still contains v4
 research parameters and its explicit wearer-qualification gate. The new
 learned gate and CNN ensembles are not ported into that implementation.
 Notebook 03 retains the original `replay` function, and its 651 golden

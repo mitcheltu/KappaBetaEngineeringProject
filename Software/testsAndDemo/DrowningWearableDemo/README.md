@@ -33,7 +33,7 @@ IMU **double tap** stop it.
 | `ImuCnn.h`, `ImuCnnParams.h` | Hand-written forward pass of the teammate's IMU CNN (`imu_cnn_bce.tflite`); no TFLite Micro needed. |
 | `PulseLoss.h`, `PulseCnnV5.h`, `PulseCnnV5Params.h`, `PulseLossParams.h` | Pulse models; `cnn_v5_h` is used (copied from `ppgSoftware`). |
 | `OxygenConcern.h`, `OxygenTrack.h`, `PpgWindow.h` | Oxygen `concern_level` rule (80 -> 60 %) and the IR ring. |
-| `DoubleTap.h` | `detectioncode.md` double-tap detector, fed by the BMI270 FIFO at 100 Hz. |
+| `DoubleTap.h` | Double-tap detector (host-tested by `Software/tests/double_tap_test.cpp`), fed by the BMI270 FIFO at 100 Hz. |
 | `libraries.txt`, `build.ps1` | Dependency versions and a compile-only helper. |
 
 Custom sensor drivers are omitted. History uses the existing protocol's record
@@ -56,8 +56,8 @@ not to history.
    70 seconds; output transitions have normal task scheduling latency.
 4. Physical Cancel aborts either phase, including during a vibration pause or
    at the pump-start boundary. An aborted sequence does not resume. An IMU
-   **double tap** (two jolts of at least 0.6 g, 120–500 ms apart, per
-   `detectioncode.md`) does the same, then gives a 150 ms confirmation buzz.
+   **double tap** (two jolts of at least 0.6 g, 120–500 ms apart, as set in
+   `DoubleTap.h`) does the same, then gives a 150 ms confirmation buzz.
 5. Release SOS and press it again to start another sequence. Holding SOS at
    boot or through completion/cancellation cannot retrigger it. Presses during
    a running sequence do not queue or extend a later sequence.
